@@ -1,0 +1,10 @@
+node_modules/
+*.tsbuildinfo
+
+# 构建产物入库：DSH 从 GitHub 安装后直接可用，无需本地构建。
+# 只提交四个 bundle，sourcemap 体积大且仅用于本地调试。
+lib/*
+!lib/index.js
+!lib/client.js
+!lib/web.js
+!lib/cli.js

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "taskmd",
+    "description": "Markdown task graphs: a tree of tasks with dependency edges, shown as an interactive panel and a per-session sidebar tab. Tasks are plain Markdown files, edited by the taskmd CLI."
+  }
+}

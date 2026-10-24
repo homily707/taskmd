@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "taskmd 任务图",
+    "description": "用 Markdown 管理任务树与依赖图：主面板展示可交互的任务图，会话侧栏列出本会话任务。任务就是 Markdown 文件，由 taskmd CLI 读写。"
+  }
+}

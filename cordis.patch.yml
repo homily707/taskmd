@@ -1,0 +1,4 @@
+- insert:
+    - id: taskmd
+      name: taskmd
+      disabled: !!js "!ctx.get('profileContext')"
