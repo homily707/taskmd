@@ -11,6 +11,7 @@ import { TaskGraph } from './task-graph.js';
 import { TaskSessionLauncher } from './session-launcher.js';
 import { CopySessionId } from './copy-session-id.js';
 import { styles } from './styles.js';
+import { isString, useStored } from './view-state.js';
 
 export interface TaskmdAppProps {
   port: TaskGraphPort;
@@ -35,19 +36,25 @@ function useNarrow(ref: { current: HTMLElement | null }): boolean {
 
 export function TaskmdApp({ port, sessions, initialTaskId, sessionId, onOpenTask }: TaskmdAppProps) {
   const { state, error, refresh } = useTasks(port);
-  const [selected, setSelected] = useState(initialTaskId);
-  const [view, setView] = useState<'outline' | 'graph'>('outline');
+  // Selection, view, width and filters survive leaving the panel or reloading the page.
+  const [selected, setSelected] = useStored<string | undefined>('selected', initialTaskId,
+    (value): value is string | undefined => value === undefined || isString(value));
+  const [view, setView] = useStored<'outline' | 'graph'>('view', 'outline',
+    (value): value is 'outline' | 'graph' => value === 'outline' || value === 'graph');
   const [query, setQuery] = useState('');
-  const [repo, setRepo] = useState('');
-  const [archived, setArchived] = useState(false);
-  const [readyOnly, setReadyOnly] = useState(false);
-  const [pane, setPane] = useState<'list' | 'detail'>('list');
+  const [repo, setRepo] = useStored('repo', '', isString);
+  const [archived, setArchived] = useStored('archived', false, (value): value is boolean => typeof value === 'boolean');
+  const [readyOnly, setReadyOnly] = useStored('readyOnly', false, (value): value is boolean => typeof value === 'boolean');
+  const [pane, setPane] = useStored<'list' | 'detail'>('pane', 'list',
+    (value): value is 'list' | 'detail' => value === 'list' || value === 'detail');
   const [dirty, setDirty] = useState(false);
-  const [split, setSplit] = useState(70);
+  const [split, setSplit] = useStored('split', 70,
+    (value): value is number => typeof value === 'number' && value >= 30 && value <= 80);
   const columns = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const narrow = useNarrow(root);
-  useEffect(() => { setSelected(initialTaskId); }, [initialTaskId]);
+  // Only an explicit prop overrides the remembered selection.
+  useEffect(() => { if (initialTaskId !== undefined) setSelected(initialTaskId); }, [initialTaskId, setSelected]);
   const ready = useMemo(() => new Set(state?.ready || []), [state]);
   const repos = useMemo(() => [...new Set((state?.tasks || []).map(task => task.repo).filter((name): name is string => !!name))].sort(), [state]);
   const tasks = useMemo(() => {

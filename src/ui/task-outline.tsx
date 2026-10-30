@@ -1,14 +1,23 @@
-import { useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import type { Operation, State, Task } from '../types.js';
 import type { TaskGraphPort } from './port.js';
 import { executionBlockers } from '../core/graph.js';
 import { compareTasks, failure, progress, statusLabels } from './shared.js';
 import { indentOperations, moveOperations, outlineRows, type Placement } from './outline-model.js';
+import { isStringList, useStored } from './view-state.js';
 
 export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged }: {
   tasks: Task[]; state: State; selected?: string; port: TaskGraphPort; onSelect(id: string): void; onChanged(): Promise<void>;
 }) {
-  const [collapsed, setCollapsed] = useState(new Set<string>());
+  // Folded parents stay folded after the panel closes; ids of removed tasks are ignored by `outlineRows`.
+  const [collapsedIds, setCollapsedIds] = useStored<string[]>('collapsed', [], isStringList);
+  const collapsed = useMemo(() => new Set(collapsedIds), [collapsedIds]);
+  const fold = (id: string) => setCollapsedIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
+  // A restored selection may sit far down the tree; reveal it once the rows exist.
+  const list = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>('[aria-current="true"]')?.scrollIntoView?.({ block: 'nearest' });
+  }, [selected, collapsedIds]);
   const [adding, setAdding] = useState<string | null | undefined>();
   const [title, setTitle] = useState('');
   const [reopen, setReopen] = useState(false);
@@ -51,7 +60,7 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged 
   return <div className="taskmd-outline">
     {error && <p className="taskmd-error" role="alert">{error}</p>}
     <p className="taskmd-muted taskmd-outline-hint">拖动行上/下缘排序，拖到行中间设为子任务；选中任务标题后 Tab / Shift+Tab 调整层级。</p>
-    <ul className="taskmd-tree" aria-label="任务大纲">{outlineRows(tasks, collapsed).map(({ task, depth }) => {
+    <ul className="taskmd-tree" aria-label="任务大纲" ref={list}>{outlineRows(tasks, collapsed).map(({ task, depth }) => {
       const count = progress(state.tasks, task.id), siblings = state.tasks.filter(t => t.parent === task.parent && !t.archived).sort(compareTasks);
       const index = siblings.findIndex(t => t.id === task.id);
       const blockers = task.status === 'todo' ? executionBlockers(state.tasks, task.id) : [];
@@ -67,14 +76,14 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged 
           onDragOver={event => { if (dragging && dragging !== task.id) { event.preventDefault(); setDrop({ id: task.id, placement: placementAt(event) }); } }}
           onDrop={event => { event.preventDefault(); const id = event.dataTransfer.getData('text/taskmd-id'); const placement = placementAt(event); setDrop(undefined); setDragging(undefined); if (id) move(() => moveOperations(state.tasks, id, task.id, placement)); }}>
           <button className="taskmd-fold" disabled={!count.total} aria-label={`${collapsed.has(task.id) ? '展开' : '折叠'} ${task.title}`} aria-expanded={count.total ? !collapsed.has(task.id) : undefined}
-            onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; })}>{count.total ? collapsed.has(task.id) ? '▸' : '▾' : '·'}</button>
+            onClick={() => fold(task.id)}>{count.total ? collapsed.has(task.id) ? '▸' : '▾' : '·'}</button>
           <button className={`taskmd-outline-label${task.status === 'done' ? ' is-done' : ''}`} aria-current={selected === task.id ? 'true' : undefined} onClick={() => onSelect(task.id)}
             onKeyDown={event => { if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) { event.preventDefault(); move(() => indentOperations(state.tasks, task.id, event.shiftKey)); } }}>
             <strong>{task.status === 'done' && <span className="taskmd-done-mark" aria-hidden="true">✓ </span>}{task.title}</strong><small>{statusLabels[task.status]}{state.ready.includes(task.id) ? ' · 可开始' : blockerText ? ` · ${blockerText}` : ''}{task.archived ? ' · 已归档' : ''}
               {count.total > 0 && ` · ${count.done} 完成 / ${count.canceled} 取消 / ${count.total} 子任务`}</small>
           </button>
           <details className="taskmd-row-menu"><summary aria-label={`操作 ${task.title}`}>···</summary><div>
-            <button disabled={busy || task.archived} onClick={() => { setAdding(task.id); setTitle(''); setReopen(false); setCollapsed(previous => { const next = new Set(previous); next.delete(task.id); return next; }); }}>添加子任务</button>
+            <button disabled={busy || task.archived} onClick={() => { setAdding(task.id); setTitle(''); setReopen(false); setCollapsedIds(previous => previous.filter(item => item !== task.id)); }}>添加子任务</button>
             <button disabled={busy || index < 1} onClick={() => move(() => moveOperations(state.tasks, task.id, siblings[index - 1]!.id, 'before'))}>上移</button>
             <button disabled={busy || index === siblings.length - 1} onClick={() => move(() => moveOperations(state.tasks, task.id, siblings[index + 1]!.id, 'after'))}>下移</button>
             <button disabled={busy || index < 1} onClick={() => move(() => indentOperations(state.tasks, task.id, false))}>缩进</button>
