@@ -179,4 +179,37 @@ export const styles = `
 .taskmd-app[data-pane=list] .taskmd-columns,.taskmd-app[data-pane=detail] .taskmd-columns{grid-template-columns:minmax(0,1fr)}
 .taskmd-app[data-pane=detail] .taskmd-details{padding-left:0}
 @media(max-width:920px){.taskmd-details{padding-left:0}.taskmd-graph{height:380px}.taskmd-app{padding:10px}.taskmd-app:not([data-pane]) .taskmd-columns{grid-template-columns:1fr}.taskmd-app:not([data-pane]) .taskmd-details{padding-left:0;padding-top:12px}}
+
+/* Compact left navigation region. Its single-slot occupant must fill the DSH column. */
+.taskmd-left-sidebar{height:100%;display:flex;flex-direction:column;min-height:0;padding:4px 6px 8px;overflow:hidden}
+.taskmd-left-top{display:flex;align-items:center;gap:6px;padding:7px 4px;flex:none;min-width:0}
+.taskmd-left-top>strong{font-size:12px;flex:1}
+.taskmd-left-top>button{padding:2px 6px;font-size:11px}
+.taskmd-left-attention{font-size:11px;color:var(--tm-warn)}
+.taskmd-left-filters{display:flex;flex-direction:column;gap:5px;flex:none;padding:0 4px 7px}
+.taskmd-left-filters input,.taskmd-left-filters select{min-width:0;width:100%;padding:5px 7px;font-size:12px}
+.taskmd-left-list{min-height:60px;overflow:auto;flex:1}
+.taskmd-left-item{list-style:none}
+.taskmd-left-row{display:flex;align-items:center;gap:3px;min-width:0;min-height:30px;border-radius:6px}
+.taskmd-left-row:hover{background:var(--tm-hover)}
+.taskmd-left-row.is-selected{background:var(--tm-accent-mix)}
+.taskmd-left-sidebar .taskmd-left-fold{border:0;padding:0;width:17px;flex:none;font-size:11px;color:var(--tm-muted);height:25px}
+.taskmd-left-sidebar .taskmd-left-label{min-width:0;flex:1;border:0;text-align:left;padding:3px 2px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:12px}
+.taskmd-left-sidebar .taskmd-status-dot{width:10px;height:10px;flex:none;margin:0 3px 0 0}
+.taskmd-left-sidebar .taskmd-status-dot.is-done:after{font-size:8px;line-height:8px}
+.taskmd-left-sidebar .taskmd-agent-chip{max-width:76px;overflow:hidden;text-overflow:ellipsis;padding:1px 4px;font-size:10px;margin-right:3px;flex:none}
+.taskmd-left-sessions{padding:8px 4px 4px;max-height:42%;overflow:auto;border-top:1px solid var(--tm-line);flex:none}
+.taskmd-left-session-head{display:flex;align-items:center;gap:6px;margin:0 0 5px;font-size:12px}
+.taskmd-left-session-head strong{flex:1}
+.taskmd-left-sidebar .taskmd-left-session{border:0;width:100%;display:flex;align-items:center;gap:6px;padding:6px 4px;text-align:left;min-width:0}
+.taskmd-left-session:hover{background:var(--tm-hover)}
+.taskmd-left-session-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-size:12px}
+.taskmd-left-session small{font-size:10px;color:var(--tm-muted);flex:none}
+.taskmd-left-session-dot{width:7px;height:7px;border-radius:50%;background:var(--tm-muted);flex:none}
+.taskmd-left-session-dot.is-attention{background:var(--tm-warn)}
+.taskmd-left-session-dot.is-running{background:var(--tm-run);animation:taskmd-pulse 1.2s infinite}
+.taskmd-left-session-dot.is-fresh{background:var(--tm-ok)}
+.taskmd-left-rail{display:block;width:38px;min-height:38px;margin:5px auto;background:transparent;border:0;border-radius:6px;cursor:pointer;color:inherit;font-size:20px}
+.taskmd-left-rail:hover{background:color-mix(in srgb,currentColor 7%,transparent)}
+
 `;
