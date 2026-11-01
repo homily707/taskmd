@@ -44,6 +44,19 @@ function baseName(path: string): string {
 const sameName = (left: string, right: string) =>
   left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 
+/**
+ * The single Workspace whose canonical path equals `directory`, if any.
+ *
+ * Unlike {@link matchWorkspace} this never falls back to name matching: a
+ * cwd-derived target may only upgrade to a Workspace on an exact path hit,
+ * otherwise the session would silently open at the Workspace root.
+ */
+export function workspaceByPath(directory: string, workspaces: readonly WorkspaceLike[]): WorkspaceLike | undefined {
+  const normalized = normalizePath(directory);
+  const hits = workspaces.filter(workspace => normalizePath(workspace.path) === normalized);
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
 /** The single Workspace a set of matches names, or the candidates to choose from. */
 function resolve(list: WorkspaceLike[]): WorkspaceMatch {
   return list.length === 1 ? { kind: 'matched', workspace: list[0]! } : { kind: 'candidates', list };

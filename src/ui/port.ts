@@ -100,6 +100,10 @@ export interface SessionCapability {
   unbind(taskId: string, sessionId: string): Promise<void>;
   /** The Task's repository directory; `null` when it has no repo or no mapping. */
   directory?(taskId: string, signal?: AbortSignal): Promise<string | null>;
+  /** Recorded cwd of the current main session, independent of its Workspace root. */
+  currentDirectory?(signal?: AbortSignal): Promise<string | null>;
+  /** Changes to the current session or available Workspace targets. */
+  subscribeTargets?(listener: () => void): () => void;
   /** Workspaces known to this Client; empty when the Client has no Workspace service. */
   workspaces?(signal?: AbortSignal): Promise<WorkspaceSummary[]>;
   /** Host model catalog used to choose a model for a freshly created Session. */

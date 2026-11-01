@@ -101,3 +101,22 @@ test('an ambiguous match with a typed choice becomes that workspace', () => {
   const target = resolveTarget({ manual: '', chosen: 'b', match: { kind: 'candidates', list: workspaces }, workspaces, directory: '/repo' });
   assert.deepEqual(target, { kind: 'workspace', workspaceId: 'b', label: 'b（/b）' });
 });
+
+
+test('current session cwd is the final fallback, never replacing explicit or repository targets', () => {
+  const input = { manual: '', chosen: '', match: undefined, workspaces: [], directory: null, currentDirectory: '/current/subdir' };
+  assert.deepEqual(resolveTarget(input), { kind: 'directory', cwd: '/current/subdir', label: '/current/subdir' });
+  assert.equal(resolveTarget({ ...input, directory: '/repo' })?.label, '/repo');
+  assert.equal(resolveTarget({ ...input, manual: '/manual' })?.label, '/manual');
+  assert.equal(resolveTarget({ ...input, chosen: 'w' })?.kind, 'workspace');
+});
+
+test('a cwd equal to a workspace root upgrades to that workspace so the session is grouped', () => {
+  const workspaces = [{ workspaceId: 'wA', path: '/repo/A', title: 'A' }, { workspaceId: 'wB', path: '/repo/B', title: 'B' }];
+  // Exact root (even with a trailing separator) creates with workspaceId.
+  assert.deepEqual(resolveTarget({ manual: '', chosen: '', match: undefined, workspaces, directory: null, currentDirectory: '/repo/A/' }),
+    { kind: 'workspace', workspaceId: 'wA', label: 'A（/repo/A）' });
+  // A subdirectory or worktree keeps the exact cwd; DSH would show it ungrouped.
+  assert.deepEqual(resolveTarget({ manual: '', chosen: '', match: undefined, workspaces, directory: null, currentDirectory: '/repo/A/worktree' }),
+    { kind: 'directory', cwd: '/repo/A/worktree', label: '/repo/A/worktree' });
+});

@@ -6,7 +6,7 @@
  * tested independently of React.
  */
 
-import type { WorkspaceMatch } from '../core/workspace-match.js';
+import { workspaceByPath, type WorkspaceMatch } from '../core/workspace-match.js';
 import type { SessionCapability, WorkspaceSummary } from './port.js';
 
 /** Exactly one `session.create` target. */
@@ -24,15 +24,15 @@ export interface TargetInput {
   match: WorkspaceMatch | undefined;
   workspaces: readonly WorkspaceSummary[] | undefined;
   directory: string | null | undefined;
+  currentDirectory?: string | null;
 }
 
 /**
  * Picks the single creation target from the user's choice and the matcher.
  *
  * Precedence: a typed directory, then the picked Workspace, then an automatic
- * match, then the Task's repository directory. The repository path is the last
- * resort because a Client without a Workspace service can still create a
- * Session — it just cannot satisfy `workspaceId`.
+ * match, then the Task's repository directory, finally the current Session cwd.
+ * Directory fallbacks also work without a Workspace service.
  */
 export function resolveTarget(input: TargetInput): Target | undefined {
   const manual = input.manual.trim();
@@ -48,6 +48,16 @@ export function resolveTarget(input: TargetInput): Target | undefined {
     };
   }
   if (input.directory) return { kind: 'directory', cwd: input.directory, label: input.directory };
+  if (input.currentDirectory) {
+    // An exact workspace-root cwd upgrades to the Workspace itself, so the
+    // created session is grouped instead of landing in "ungrouped". A
+    // subdirectory or worktree stays a plain cwd: the gateway rejects
+    // workspaceId and cwd together, and redirecting to the Workspace root
+    // would silently change the directory the user works in.
+    const byPath = workspaceByPath(input.currentDirectory, input.workspaces ?? []);
+    if (byPath) return { kind: 'workspace', workspaceId: byPath.workspaceId, label: `${byPath.title}（${byPath.path}）` };
+    return { kind: 'directory', cwd: input.currentDirectory, label: input.currentDirectory };
+  }
   return undefined;
 }
 

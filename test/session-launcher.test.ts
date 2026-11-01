@@ -205,3 +205,55 @@ test('duplicate clicks cannot create two sessions and an empty prompt cannot sta
   await act(async () => pending.resolve({ sessionId: 's-1' }));
   assert.equal(sends, 1);
 });
+
+
+test('a task without a repo offers all workspaces and defaults to the current session cwd', async t => {
+  const calls: unknown[] = [];
+  const view = await mount(t, capability({
+    directory: async () => null,
+    currentDirectory: async () => '/worktrees/current/subdir',
+    create: async (_id, options) => { calls.push(['create', options]); return { sessionId: 's-1' }; },
+    send: async (id, prompt) => { assert.match(prompt, /task-1/); calls.push(['send', id]); },
+    open: async id => { calls.push(['open', id]); },
+  }), { ...task, repo: null });
+  const picker = field(view, '工作目录', 'select');
+  assert.deepEqual(picker.findAllByType('option').map(node => node.props.value), ['', 'wA', 'wB']);
+  assert.equal(button(view, '创建并发送首条消息').props.disabled, false);
+  assert.match(text(view.root), /工作目录：\/worktrees\/current\/subdir/);
+  await act(async () => button(view, '创建并发送首条消息').props.onClick());
+  assert.deepEqual(calls, [['create', { directory: '/worktrees/current/subdir' }], ['send', 's-1'], ['open', 's-1']]);
+});
+
+test('an explicit workspace works without a repo or current session; manual directory overrides it', async t => {
+  const calls: unknown[] = [];
+  const view = await mount(t, capability({ directory: async () => null,
+    create: async (_id, options) => { calls.push(options); return { sessionId: 's-1' }; },
+  }), { ...task, repo: null });
+  assert.equal(button(view, '创建并绑定会话').props.disabled, true);
+  act(() => field(view, '工作目录', 'select').props.onChange({ target: { value: 'wB' } }));
+  assert.equal(button(view, '创建并绑定会话').props.disabled, false);
+  act(() => field(view, '改用其他工作目录').props.onChange({ target: { value: '/manual' } }));
+  await act(async () => button(view, '创建并绑定会话').props.onClick());
+  assert.deepEqual(calls, [{ directory: '/manual' }]);
+});
+
+
+test('late target catalog and cwd changes refresh the default without clearing manual input', async t => {
+  let changed = () => {};
+  let cwd: string | null = null;
+  let directoryReads = 0;
+  const view = await mount(t, capability({
+    directory: async () => { directoryReads++; return null; },
+    workspaces: async () => cwd ? workspaces : [],
+    currentDirectory: async () => cwd,
+    subscribeTargets: listener => { changed = listener; return () => {}; },
+  }), { ...task, repo: null });
+  assert.equal(button(view, '创建并绑定会话').props.disabled, true);
+  await act(async () => { cwd = '/late/subdir'; changed(); });
+  assert.equal(button(view, '创建并绑定会话').props.disabled, false);
+  assert.match(text(field(view, '工作目录', 'select')), /当前会话：\/late\/subdir/);
+  act(() => field(view, '改用其他工作目录').props.onChange({ target: { value: '/manual' } }));
+  await act(async () => { cwd = '/next'; changed(); });
+  assert.equal(field(view, '改用其他工作目录').props.value, '/manual');
+  assert.equal(directoryReads, 1);
+});

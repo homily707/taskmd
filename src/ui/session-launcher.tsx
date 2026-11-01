@@ -20,29 +20,33 @@ function messageOf(error: unknown): string {
 function useWorkspaceTarget(task: Task, capability: SessionCapability) {
   const [loaded, setLoaded] = useState<{
     taskId: string; repo: Task['repo']; capability: SessionCapability;
-    workspaces: WorkspaceSummary[]; directory: string | null; error: string;
+    workspaces: WorkspaceSummary[]; directory: string | null; currentDirectory: string | null; error: string;
   }>();
   useEffect(() => {
     const controller = new AbortController();
-    (async () => {
+    const directoryRead = capability.directory?.(task.id, controller.signal).catch(() => null) ?? Promise.resolve(null);
+    let request = 0;
+    const refresh = async () => {
+      const currentRequest = ++request;
       let error = '';
       // An unmapped repository must not hide workspaces that match by name.
-      const [directory, workspaces] = await Promise.all([
-        capability.directory
-          ? capability.directory(task.id, controller.signal).catch(() => null)
-          : Promise.resolve(null),
+      const [directory, workspaces, currentDirectory] = await Promise.all([
+        directoryRead,
         capability.workspaces
           ? capability.workspaces(controller.signal).catch((cause: unknown) => {
             error = messageOf(cause);
             return [] as WorkspaceSummary[];
           })
           : Promise.resolve([] as WorkspaceSummary[]),
+        capability.currentDirectory?.(controller.signal).catch(() => null) ?? Promise.resolve(null),
       ]);
-      if (!controller.signal.aborted) {
-        setLoaded({ taskId: task.id, repo: task.repo, capability, directory, workspaces, error });
+      if (!controller.signal.aborted && request === currentRequest) {
+        setLoaded({ taskId: task.id, repo: task.repo, capability, directory, workspaces, currentDirectory, error });
       }
-    })();
-    return () => controller.abort();
+    };
+    const stop = capability.subscribeTargets?.(() => { void refresh(); });
+    void refresh();
+    return () => { controller.abort(); stop?.(); };
   }, [capability, task.id, task.repo]);
   // Invalidate synchronously, including the render before the new effect runs.
   const current = loaded?.taskId === task.id && loaded.repo === task.repo && loaded.capability === capability
@@ -55,7 +59,7 @@ function useWorkspaceTarget(task: Task, capability: SessionCapability) {
       : matchWorkspace({ name: task.repo ?? null, directory }, workspaces),
     [workspaces, directory, task.repo],
   );
-  return { workspaces, directory, match, error: current?.error ?? '' };
+  return { workspaces, directory, currentDirectory: current?.currentDirectory, match, error: current?.error ?? '' };
 }
 
 function ModelPicker({ capability, selection, onChange, disabled }: {
@@ -120,7 +124,7 @@ export function TaskSessionLauncher(props: { task: Task; capability: SessionCapa
 }
 
 function SessionLaunchForm({ task, capability, defaultOpen = false }: { task: Task; capability: SessionCapability; defaultOpen?: boolean }) {
-  const { workspaces, directory, match, error: loadError } = useWorkspaceTarget(task, capability);
+  const { workspaces, directory, currentDirectory, match, error: loadError } = useWorkspaceTarget(task, capability);
   const [chosen, setChosen] = useState('');
   const [manual, setManual] = useState('');
   const [targetOwner, setTargetOwner] = useState({ id: task.id, repo: task.repo });
@@ -139,7 +143,7 @@ function SessionLaunchForm({ task, capability, defaultOpen = false }: { task: Ta
   const progress = useRef<LaunchProgress>(freshProgress());
   const current = progress.current;
   const auto = match?.kind === 'matched' ? match.workspace : undefined;
-  const target = useMemo(() => resolveTarget({ manual, chosen, match, workspaces, directory }), [manual, chosen, match, workspaces, directory]);
+  const target = useMemo(() => resolveTarget({ manual, chosen, match, workspaces, directory, currentDirectory }), [manual, chosen, match, workspaces, directory, currentDirectory]);
   const canRun = !busy && !current.attachFailed && (!!current.sessionId || !!target)
     && (!capability.send || !!prompt.trim()) && !failure?.existingTaskId;
   const complete = current.opened && (!capability.send || current.sent);
@@ -203,18 +207,16 @@ function SessionLaunchForm({ task, capability, defaultOpen = false }: { task: Ta
     try { await navigator.clipboard.writeText(prompt); setNotice('已复制提示词。'); }
     catch { setNotice('浏览器拒绝了剪贴板访问，请手动选中文本复制。'); }
   };
-  const candidates = match?.kind === 'candidates' ? match.list : [];
   const frozen = busy || !!current.delivery;
   return <details className="taskmd-box taskmd-launcher" open={defaultOpen} aria-label="从任务新建会话"><summary>从任务新建会话</summary>
     {loadError && <p className="taskmd-error" role="alert">{loadError}</p>}
     <fieldset className="taskmd-launch-options" disabled={busy || !!current.sessionId}>
-      {!task.repo && <p className="taskmd-muted">请选择工作目录。</p>}
-      {!!candidates.length && <label>选择 Workspace<select value={chosen} onChange={event => setChosen(event.target.value)}>
-        <option value="">请选择一个（{candidates.length} 个候选）</option>
-        {candidates.map(item => <option key={item.workspaceId} value={item.workspaceId}>{item.title} · {item.path}</option>)}
-      </select></label>}
-      {auto && !manual.trim() && <p className="taskmd-muted">Workspace：{auto.title}（{auto.path}）</p>}
-      <label>改用其他工作目录<input value={manual} onChange={event => setManual(event.target.value)} placeholder="可选；填写后覆盖 Workspace 选择" /></label>
+      <label>工作目录<select value={chosen} onChange={event => setChosen(event.target.value)}>
+        <option value="">{auto ? `仓库 Workspace：${auto.title} · ${auto.path}` : directory ? `仓库目录：${directory}` : currentDirectory ? (target?.kind === 'workspace' ? `当前会话 Workspace：${target.label}` : `当前会话：${currentDirectory}`) : '请选择 Workspace 或填写目录'}</option>
+        {(workspaces ?? []).map(item => <option key={item.workspaceId} value={item.workspaceId}>{item.title} · {item.path}</option>)}
+      </select></label>
+      {auto && !chosen && !manual.trim() && <p className="taskmd-muted">Workspace：{auto.title}（{auto.path}）</p>}
+      <label>改用其他工作目录<input value={manual} onChange={event => setManual(event.target.value)} placeholder="可选；留空使用上述默认目录，填写后覆盖 Workspace" /></label>
       <label>Agent preset<input value={preset} onChange={event => setPreset(event.target.value)} placeholder="可选；留空使用默认 preset" /></label>
     </fieldset>
     <ModelPicker capability={capability} selection={selection} disabled={frozen} onChange={value => { setSelection(value); current.modelApplied = false; }} />

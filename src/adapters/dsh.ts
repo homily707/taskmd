@@ -102,11 +102,14 @@ interface WorkspaceService {
 
 /** One row of the session controller's `sessions.list` snapshot. */
 interface SessionListEntry {
+  cwd?: string;
+  retainedBy?: { mainView?: number };
   running?: boolean;
   blank?: boolean;
   updatedAt?: number;
   displayTitle?: string;
   projectionValues?: {
+    workingDirectory?: string | null;
     agentPreset?: string;
     tokenUsage?: Partial<Record<'uncachedInputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens', number>>;
   };
@@ -340,6 +343,19 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
       const directory = await observe(unwrap(remote.repositoryDirectory(taskId)), signalFor(signal));
       return directory;
     },
+    subscribeTargets(listener) {
+      const stops = [
+        (scope.get('sessions') as SessionCatalogService | undefined)?.list.subscribe(listener),
+        (scope.get('workspaces') as WorkspaceService | undefined)?.list.subscribe(listener),
+      ];
+      return () => { for (const stop of stops) stop?.(); };
+    },
+    async currentDirectory(signal) {
+      signalFor(signal).throwIfAborted();
+      const catalog = (scope.get('sessions') as SessionCatalogService | undefined)?.list.getSnapshot();
+      const current = Object.values(catalog?.byId ?? {}).find(entry => (entry.retainedBy?.mainView ?? 0) > 0);
+      return current?.projectionValues?.workingDirectory ?? current?.cwd ?? null;
+    },
     async workspaces(signal) {
       signalFor(signal).throwIfAborted();
       const service = scope.get('workspaces') as WorkspaceService | undefined;
@@ -374,7 +390,8 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
       // is a gateway/bad-request. A Workspace wins when the caller resolved one.
       const workspaceId = options.workspaceId?.trim();
       const directory = workspaceId ? undefined
-        : options.directory?.trim() || await unwrap(remote.repositoryDirectory(taskId)) || undefined;
+        : options.directory?.trim() || await unwrap(remote.repositoryDirectory(taskId))
+          || await sessions.currentDirectory?.() || undefined;
       if (!workspaceId && !directory) throw new Error('Choose a Workspace or a directory for this task before creating a session.');
       lifetime.signal.throwIfAborted();
       let sessionId: string;

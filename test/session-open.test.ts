@@ -44,10 +44,12 @@ interface Services {
 
 interface Harness {
   sessions: {
+    currentDirectory(): Promise<string | null>;
+    create(taskId: string, options: { directory?: string; workspaceId?: string }): Promise<{ sessionId: string }>;
     open(sessionId: string): Promise<void>;
     send(sessionId: string, text: string, requestId: string): Promise<void>;
   };
-  calls: { open: string[]; touch: string[] };
+  calls: { open: string[]; touch: string[]; create: unknown[] };
 }
 
 /**
@@ -75,7 +77,7 @@ async function mount(options: { services?: Services; refuseTouch?: boolean } = {
     '@deepseek-ai/dsh-client-store': platformStore(),
   };
 
-  const calls: { open: string[]; touch: string[] } = { open: [], touch: [] };
+  const calls: { open: string[]; touch: string[]; create: unknown[] } = { open: [], touch: [], create: [] };
   let root: (() => { props: Record<string, any> }) | undefined;
   const effects: (() => unknown)[] = [];
   const services: Record<string, unknown> = {
@@ -118,7 +120,7 @@ async function mount(options: { services?: Services; refuseTouch?: boolean } = {
     },
     resources: { register: () => () => {} },
     sidebarRightTabs: { register: () => () => {} },
-    sessions: { create: () => Promise.resolve('created') },
+    sessions: { create: (options: unknown) => { calls.create.push(options); return Promise.resolve('created'); } },
     uiWorkspace: { openSession: (sessionId: string) => { calls.open.push(sessionId); } },
     layout: { selectPanel() {} },
     shortcuts: { register: () => () => {} },
@@ -220,4 +222,30 @@ test('send reports a missing prompt service and remote rejections', async () => 
     prompt: async () => ({ ok: false, error: Object.assign(new Error('refused'), { code: 'session/agent-busy' }) }),
   } } });
   await assert.rejects(rejected.sessions.send('session-1', 'go', 'r'), (error: unknown) => (error as { code: string }).code === 'session/agent-busy');
+});
+
+
+test('current cwd follows the retained main session projection, not its workspace root', async () => {
+  const { sessions, calls } = await mount({ services: {
+    sessions: { list: { getSnapshot: () => ({ phase: 'ready', byId: {
+      other: { cwd: '/other', retainedBy: { mainView: 0 } },
+      current: { cwd: '/repo', retainedBy: { mainView: 1 }, projectionValues: { workingDirectory: '/worktree/subdir' } },
+    } }) } },
+  } });
+  assert.equal(await sessions.currentDirectory(), '/worktree/subdir');
+  await sessions.create('task-1', {});
+  await sessions.create('task-1', { directory: '/explicit' });
+  await sessions.create('task-1', { workspaceId: 'w1' });
+  assert.deepEqual(calls.create, [{ cwd: '/worktree/subdir' }, { cwd: '/explicit' }, { workspaceId: 'w1' }]);
+});
+
+test('current cwd falls back to session header and stays unavailable without a main session', async () => {
+  const { sessions } = await mount({ services: {
+    sessions: { list: { getSnapshot: () => ({ byId: { current: { cwd: '/header', retainedBy: { mainView: 1 } } } }) } },
+  } });
+  assert.equal(await sessions.currentDirectory(), '/header');
+  const missing = await mount();
+  assert.equal(await missing.sessions.currentDirectory(), null);
+  await assert.rejects(missing.sessions.create('task-1', {}), /Choose a Workspace/);
+  assert.deepEqual(missing.calls.create, []);
 });
