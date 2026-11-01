@@ -268,10 +268,10 @@ async function setup(ctx: ClientContext): Promise<void> {
       aria-label={tasks ? '切换到 DSH 会话列表' : '切换到 taskmd 任务大纲'}
       aria-pressed={tasks} style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-        padding: '8px 10px', width: wide ? '100%' : 40, minHeight: 36,
+        padding: '8px 10px', width: wide ? 'auto' : 40, minHeight: 36,
         border: 'none', borderRadius: 7, background: tasks ? 'color-mix(in srgb,currentColor 9%,transparent)' : 'transparent',
         color: 'inherit', cursor: 'pointer', font: 'inherit',
-      }}><TasksIcon />{wide && <span style={{ flex: 1, textAlign: 'left' }}>{tasks ? '任务大纲 · 切换会话' : '任务大纲'}</span>}</button>;
+      }}><TasksIcon />{wide && <span style={{ whiteSpace: 'nowrap' }}>{tasks ? '返回会话' : '任务大纲'}</span>}</button>;
   }
   ctx.effect(() => ctx.slots.inject('sidebar.workspaces', () => {
     sidebarSlotMounted = true;
