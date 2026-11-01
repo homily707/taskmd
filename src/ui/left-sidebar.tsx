@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { TaskSessionBinding } from '../types.js';
-import type { SessionCapability, TaskGraphPort } from './port.js';
+import type { SessionCapability, SessionStatus, TaskGraphPort } from './port.js';
 import { chipLabel, levelLabels, levelOf } from './agent-status.js';
 import { useAgentBindings, subtreeViews } from './taskmd-app.js';
 import { outlineRows } from './outline-model.js';
@@ -10,8 +10,10 @@ import { styles } from './styles.js';
 
 /**
  * Read-only navigation sidebar. It intentionally does not mutate Task state:
- * select a Task to see all of its bound Sessions, then open the chosen chat.
- * The DSH-native sidebar is restored by the separate footer switch.
+ * the active-sessions region lists every running or attention session in this
+ * Client, then the outline navigates Tasks, and the bottom region opens the
+ * Sessions bound to the selected Task. The DSH-native sidebar is restored by
+ * the separate footer switch.
  */
 export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, showSessions }: {
   port: TaskGraphPort;
@@ -48,6 +50,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, showSes
       <button type="button" title="刷新任务" aria-label="刷新任务" onClick={() => void refresh()}>↻</button>
       <button type="button" title="恢复原生 Session 列表" onClick={showSessions}>会话</button>
     </div>
+    <ActiveSessions sessions={sessions} />
     <div className="taskmd-left-filters">
       <input aria-label="搜索任务大纲" placeholder="搜索任务…" value={query} onChange={event => setQuery(event.target.value)} />
       {repositories.length > 1 && <select aria-label="筛选仓库" value={repo} onChange={event => setRepo(event.target.value)}>
@@ -116,7 +119,11 @@ function SessionLinks({ taskId, title, sessions, port }: {
   };
 
   return <section className="taskmd-left-sessions" aria-label="关联会话">
-    <div className="taskmd-left-session-head" title={title}><strong>关联会话</strong><span className="taskmd-muted">{bindings?.length ?? '…'}</span></div>
+    <div className="taskmd-left-session-head" title={title}>
+      <strong>关联会话</strong>
+      {title && <span className="taskmd-left-task-name">{title}</span>}
+      <span className="taskmd-muted">{bindings?.length ?? '…'}</span>
+    </div>
     {error && <p className="taskmd-error" role="alert">{error}</p>}
     {bindings?.map(binding => {
       const status = statuses?.get(binding.sessionId);
@@ -129,5 +136,68 @@ function SessionLinks({ taskId, title, sessions, port }: {
     })}
     {bindings && bindings.length === 0 && <p className="taskmd-muted">该任务尚无关联会话</p>}
     {!bindings && !error && <p className="taskmd-muted">正在读取会话…</p>}
+  </section>;
+}
+
+/**
+ * Every session in this Client that is running, waiting for the user or has an
+ * unread fresh completion, regardless of Task bindings — the same session may
+ * also appear below in the bound-Sessions region; the two lists are
+ * deliberately not deduplicated. Rows keep catalog order within each group so
+ * streaming does not reshuffle. Opening a session clears its fresh flag, so it
+ * leaves this region on its own once the user has looked at it.
+ */
+function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
+  const statusSource = sessions.statuses?.();
+  const [collapsed, setCollapsed] = useStored('leftActiveCollapsed', false,
+    (value): value is boolean => typeof value === 'boolean');
+  const [tick, setTick] = useState(0);
+  const [error, setError] = useState('');
+  useEffect(() => statusSource?.subscribe(() => setTick(value => value + 1)), [statusSource]);
+  const active = useMemo(() => {
+    if (!statusSource) return undefined;
+    const attention: SessionStatus[] = [];
+    const fresh: SessionStatus[] = [];
+    const running: SessionStatus[] = [];
+    for (const status of statusSource.get().values()) {
+      if (status.archived) continue;
+      if (status.pending) attention.push(status);
+      else if (status.fresh) fresh.push(status);
+      else if (status.running) running.push(status);
+    }
+    return { attention, fresh, running };
+  }, [statusSource, tick]);
+  const open = async (sessionId: string) => {
+    setError('');
+    try { await sessions.open(sessionId); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  };
+  if (!statusSource || !active) return null;
+  const rows = [...active.attention, ...active.fresh, ...active.running];
+
+  return <section className="taskmd-left-active" aria-label="进行中的会话">
+    <div className="taskmd-left-active-head">
+      <button type="button" className="taskmd-left-fold"
+        aria-label={collapsed ? '展开进行中的会话' : '折叠进行中的会话'}
+        aria-expanded={!collapsed}
+        onClick={() => setCollapsed(!collapsed)}>
+        {collapsed ? '▸' : '▾'}
+      </button>
+      <strong>进行中的会话</strong>
+      {active.attention.length > 0 && <span className="taskmd-left-attention" title="等待你处理的会话数">⚠ {active.attention.length}</span>}
+      <span className="taskmd-muted" title={`运行中 ${active.running.length} · 有新结果 ${active.fresh.length} · 等待处理 ${active.attention.length}`}>{rows.length}</span>
+    </div>
+    {error && <p className="taskmd-error" role="alert">{error}</p>}
+    {!collapsed && <>
+      <div className="taskmd-left-active-list">
+        {rows.map(status => <button type="button" key={status.sessionId} className="taskmd-left-session"
+          title={status.sessionId} onClick={() => void open(status.sessionId)}>
+          <span className={`taskmd-left-session-dot${status.pending ? ' is-attention' : status.fresh ? ' is-fresh' : ' is-running'}`} />
+          <span className="taskmd-left-session-title">{status.title || status.sessionId}</span>
+          <small>{status.pending ? '等你处理' : status.fresh ? '有新结果' : status.runningSubagents ? `运行中 · ${status.runningSubagents} 子代理` : '运行中'}</small>
+        </button>)}
+      </div>
+      {rows.length === 0 && <p className="taskmd-muted">暂无进行中的会话</p>}
+    </>}
   </section>;
 }

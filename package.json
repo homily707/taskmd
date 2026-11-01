@@ -1,6 +1,6 @@
 {
   "name": "taskmd",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "description": "Markdown task graphs, CLI and DeepSeek Harness plugin",
   "type": "module",
