@@ -53,7 +53,7 @@ export const styles = `
 .taskmd-outline-row.is-selected .taskmd-outline-label strong{color:var(--tm-accent)}
 .taskmd-app .taskmd-fold{flex:0 0 20px;width:20px;padding:4px 0;text-align:center;border-color:transparent;color:var(--tm-muted);font-size:10px}
 .taskmd-app .taskmd-fold:hover{border-color:transparent;background:var(--tm-hover)}
-.taskmd-status-dot{flex:none;width:14px;height:14px;margin:0 3px;border-radius:50%;border:1.6px solid color-mix(in srgb,currentColor 45%,transparent);position:relative}
+.taskmd-status-dot{display:inline-block;vertical-align:middle;flex:none;width:14px;height:14px;margin:0 3px;border-radius:50%;border:1.6px solid color-mix(in srgb,currentColor 45%,transparent);position:relative}
 .taskmd-status-dot.is-in_progress{border-color:var(--tm-accent);background:conic-gradient(var(--tm-accent) 0 50%,transparent 50% 100%)}
 .taskmd-status-dot.is-done{border-color:var(--tm-ok);background:var(--tm-ok)}
 .taskmd-status-dot.is-done:after{content:"✓";color:#fff;font-size:9px;font-weight:700;position:absolute;inset:0;text-align:center;line-height:12px}
