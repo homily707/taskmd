@@ -66,7 +66,7 @@ function useTaskAgentView(sessions: SessionCapability | undefined, taskId: strin
  * outline, the header pills and the filters share one view. Binding reads are
  * refreshed by the same invalidation bus the task graph uses.
  */
-function useAgentBindings(sessions: SessionCapability | undefined, port: TaskGraphPort) {
+export function useAgentBindings(sessions: SessionCapability | undefined, port: TaskGraphPort) {
   const [bindings, setBindings] = useState<TaskSessionBinding[]>();
   const [reload, setReload] = useState(0);
   const [tick, setTick] = useState(0);
@@ -108,7 +108,7 @@ function useAgentBindings(sessions: SessionCapability | undefined, port: TaskGra
 }
 
 /** Rolls every descendant's sessions into one view for parent rows and pills. */
-function subtreeViews(tasks: Task[] | undefined, views: Map<string, TaskAgentView>): Map<string, TaskAgentView> {
+export function subtreeViews(tasks: Task[] | undefined, views: Map<string, TaskAgentView>): Map<string, TaskAgentView> {
   const map = new Map<string, TaskAgentView>();
   if (!tasks?.length || views.size === 0) return map;
   for (const task of tasks) {
