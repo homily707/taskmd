@@ -1,18 +1,38 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import type { Operation, State, Task } from '../types.js';
 import type { TaskGraphPort } from './port.js';
 import { executionBlockers } from '../core/graph.js';
 import { compareTasks, failure, progress, statusLabels } from './shared.js';
+import { chipLabel, type TaskAgentView } from './agent-status.js';
 import { indentOperations, moveOperations, outlineRows, type Placement } from './outline-model.js';
 import { isStringList, useStored } from './view-state.js';
 
-export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged }: {
+export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged, agent, reveal }: {
   tasks: Task[]; state: State; selected?: string; port: TaskGraphPort; onSelect(id: string): void; onChanged(): Promise<void>;
+  /** Rolled-up agent views per task id; `undefined` hides every agent chip. */
+  agent?: Map<string, TaskAgentView>;
+  /** A pill jump: unfold the target's ancestors so the selection is visible. */
+  reveal?: { id: string; nonce: number };
 }) {
   // Folded parents stay folded after the panel closes; ids of removed tasks are ignored by `outlineRows`.
   const [collapsedIds, setCollapsedIds] = useStored<string[]>('collapsed', [], isStringList);
   const collapsed = useMemo(() => new Set(collapsedIds), [collapsedIds]);
   const fold = (id: string) => setCollapsedIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
+  // A jump from the header pills must land on a visible row, so every ancestor
+  // of the target unfolds once per nonce. Unrelated folds stay untouched.
+  useEffect(() => {
+    if (!reveal) return;
+    setCollapsedIds(previous => {
+      const ancestors = new Set<string>();
+      let parent = state.tasks.find(task => task.id === reveal.id)?.parent;
+      while (parent && !ancestors.has(parent)) {
+        ancestors.add(parent);
+        parent = state.tasks.find(task => task.id === parent)?.parent;
+      }
+      const next = previous.filter(id => !ancestors.has(id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [reveal?.nonce, reveal?.id, state.tasks, setCollapsedIds]);
   // A restored selection may sit far down the tree; reveal it once the rows exist.
   const list = useRef<HTMLUListElement>(null);
   useEffect(() => {
@@ -59,29 +79,39 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged 
   };
   return <div className="taskmd-outline">
     {error && <p className="taskmd-error" role="alert">{error}</p>}
-    <p className="taskmd-muted taskmd-outline-hint">拖动行上/下缘排序，拖到行中间设为子任务；选中任务标题后 Tab / Shift+Tab 调整层级。</p>
     <ul className="taskmd-tree" aria-label="任务大纲" ref={list}>{outlineRows(tasks, collapsed).map(({ task, depth }) => {
       const count = progress(state.tasks, task.id), siblings = state.tasks.filter(t => t.parent === task.parent && !t.archived).sort(compareTasks);
       const index = siblings.findIndex(t => t.id === task.id);
       const blockers = task.status === 'todo' ? executionBlockers(state.tasks, task.id) : [];
-      const blockerText = blockers.length
-        ? blockers[0]!.dependencyId
-          ? `等待 ${(state.tasks.find(item => item.id === blockers[0]!.dependencyId) || { title: blockers[0]!.dependencyId }).title}`
-          : blockers[0]!.message
-        : '';
+      const blockerNames = blockers.map(blocker => blocker.dependencyId
+        ? (state.tasks.find(item => item.id === blocker.dependencyId)?.title || blocker.dependencyId)
+        : blocker.message);
+      const agentView = agent?.get(task.id);
+      const agentChip = agentView ? chipLabel(agentView, agentView.statuses.length) : undefined;
+      const progressPct = count.total ? Math.round(count.terminal / count.total * 100) : 0;
       return <li key={task.id}>
-        <div className={`taskmd-outline-row ${drop?.id === task.id ? `taskmd-drop-${drop.placement}` : ''}`} style={{ paddingInlineStart: Math.min(depth, 12) * 16 }}
+        <div className={`taskmd-outline-row${selected === task.id ? ' is-selected' : ''}${drop?.id === task.id ? ` taskmd-drop-${drop.placement}` : ''}`}
+          style={{ paddingInlineStart: Math.min(depth, 12) * 14 }} title="拖动行上/下缘排序，拖到行中间设为子任务；选中任务标题后 Tab / Shift+Tab 调整层级"
           draggable={!busy && !task.archived} onDragStart={event => { setDragging(task.id); event.dataTransfer.setData('text/taskmd-id', task.id); event.dataTransfer.effectAllowed = 'move'; }}
           onDragEnd={() => { setDragging(undefined); setDrop(undefined); }}
           onDragOver={event => { if (dragging && dragging !== task.id) { event.preventDefault(); setDrop({ id: task.id, placement: placementAt(event) }); } }}
           onDrop={event => { event.preventDefault(); const id = event.dataTransfer.getData('text/taskmd-id'); const placement = placementAt(event); setDrop(undefined); setDragging(undefined); if (id) move(() => moveOperations(state.tasks, id, task.id, placement)); }}>
           <button className="taskmd-fold" disabled={!count.total} aria-label={`${collapsed.has(task.id) ? '展开' : '折叠'} ${task.title}`} aria-expanded={count.total ? !collapsed.has(task.id) : undefined}
             onClick={() => fold(task.id)}>{count.total ? collapsed.has(task.id) ? '▸' : '▾' : '·'}</button>
+          <span className={`taskmd-status-dot is-${task.status}`} role="img" aria-label={statusLabels[task.status]} />
           <button className={`taskmd-outline-label${task.status === 'done' ? ' is-done' : ''}`} aria-current={selected === task.id ? 'true' : undefined} onClick={() => onSelect(task.id)}
             onKeyDown={event => { if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) { event.preventDefault(); move(() => indentOperations(state.tasks, task.id, event.shiftKey)); } }}>
-            <strong>{task.status === 'done' && <span className="taskmd-done-mark" aria-hidden="true">✓ </span>}{task.title}</strong><small>{statusLabels[task.status]}{state.ready.includes(task.id) ? ' · 可开始' : blockerText ? ` · ${blockerText}` : ''}{task.archived ? ' · 已归档' : ''}
-              {count.total > 0 && ` · ${count.done} 完成 / ${count.canceled} 取消 / ${count.total} 子任务`}</small>
+            <strong>{task.title}</strong>
           </button>
+          <span className="taskmd-row-meta">
+            {agentChip && <span className={`taskmd-agent-chip is-${agentView!.level}`}>{agentChip}</span>}
+            {state.ready.includes(task.id) && <span className="taskmd-ready-flag">可开始</span>}
+            {!!blockers.length && <span className="taskmd-row-lock" title={`等待：${blockerNames.join('、')}`}>🔒 {blockers.length > 1 ? `${blockers.length} 项` : blockerNames[0]}</span>}
+            {count.total > 0 && <span className="taskmd-progress" title={`子任务 ${count.done}/${count.total} 完成${count.canceled > 0 ? ` · ${count.canceled} 取消` : ''}`}>
+              <i style={{ '--p': `${progressPct}%` } as CSSProperties} /><span>{count.done}/{count.total}</span></span>}
+            {task.repo && <span className="taskmd-tag">{task.repo}</span>}
+            {task.archived && <span className="taskmd-tag">已归档</span>}
+          </span>
           <details className="taskmd-row-menu"><summary aria-label={`操作 ${task.title}`}>···</summary><div>
             <button disabled={busy || task.archived} onClick={() => { setAdding(task.id); setTitle(''); setReopen(false); setCollapsedIds(previous => previous.filter(item => item !== task.id)); }}>添加子任务</button>
             <button disabled={busy || index < 1} onClick={() => move(() => moveOperations(state.tasks, task.id, siblings[index - 1]!.id, 'before'))}>上移</button>

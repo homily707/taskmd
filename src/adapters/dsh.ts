@@ -1,6 +1,6 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store';
 import type {
-  ModelCatalog, ModelSelection, SessionCapability, TaskGraphPort, WorkspaceSummary,
+  ModelCatalog, ModelSelection, SessionCapability, SessionStatus, SessionStatusSource, TaskGraphPort, WorkspaceSummary,
 } from '../ui/port.js';
 import { TaskError, type State, type TaskRecord } from '../types.js';
 import { assertSessionReachable } from './session-nav.js';
@@ -100,6 +100,129 @@ interface WorkspaceService {
   };
 }
 
+/** One row of the session controller's `sessions.list` snapshot. */
+interface SessionListEntry {
+  running?: boolean;
+  blank?: boolean;
+  updatedAt?: number;
+  displayTitle?: string;
+  projectionValues?: {
+    agentPreset?: string;
+    tokenUsage?: Partial<Record<'uncachedInputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens', number>>;
+  };
+}
+
+/** The session controller's catalog service, extended with live projections. */
+interface SessionCatalogService {
+  list: {
+    getSnapshot(): {
+      phase: string;
+      byId: Record<string, SessionListEntry>;
+      projectionsBySession?: Record<string, { values?: { subagentCatalog?: { id: string; mode?: string }[] } }>;
+    };
+    subscribe(listener: () => void): () => void;
+  };
+}
+
+/** The `uiSession` service: running, pending interaction and fresh completion. */
+interface UiSessionService {
+  sessionStatus: {
+    getSnapshot(): Map<string, {
+      running?: boolean;
+      pendingInteraction?: { kind?: string };
+      completionUnread?: boolean;
+    }>;
+    subscribe(listener: () => void): () => void;
+  };
+}
+
+/** Only these pending kinds are user-visible, mirroring the workspace sidebar. */
+function visiblePending(kind: string | undefined): SessionStatus['pending'] {
+  return kind === 'approval' || kind === 'plan-review' || kind === 'question' ? kind : undefined;
+}
+
+function countRunningSubagents(
+  snapshot: ReturnType<SessionCatalogService['list']['getSnapshot']>,
+  status: ReturnType<UiSessionService['sessionStatus']['getSnapshot']>,
+  sessionId: string,
+): number | undefined {
+  const children = snapshot.projectionsBySession?.[sessionId]?.values?.subagentCatalog;
+  if (!children?.length) return undefined;
+  let count = 0;
+  for (const child of children) {
+    if (child.mode === 'external') continue;
+    if ((status.get(child.id)?.running ?? snapshot.byId[child.id]?.running) === true) count += 1;
+  }
+  return count;
+}
+
+/** Merges the Client's session stores into one display-only status snapshot. */
+function collectSessionStatuses(scope: DshAdapterScope): Map<string, SessionStatus> {
+  const catalog = (scope.get('sessions') as SessionCatalogService | undefined)?.list.getSnapshot();
+  const status = (scope.get('uiSession') as UiSessionService | undefined)?.sessionStatus.getSnapshot();
+  const archived = new Set((scope.get('workspaces') as WorkspaceService | undefined)
+    ?.list.getSnapshot().archivedSessionIds ?? []);
+  const result = new Map<string, SessionStatus>();
+  const ids = new Set<string>([...Object.keys(catalog?.byId ?? {}), ...(status?.keys() ?? [])]);
+  for (const id of ids) {
+    const entry = catalog?.byId[id];
+    const live = status?.get(id);
+    const pending = visiblePending(live?.pendingInteraction?.kind);
+    const usage = entry?.projectionValues?.tokenUsage;
+    const tokens = usage
+      ? (usage.uncachedInputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+      : undefined;
+    const subagents = catalog ? countRunningSubagents(catalog, status ?? new Map(), id) : undefined;
+    result.set(id, {
+      sessionId: id,
+      running: live?.running ?? entry?.running ?? false,
+      ...(pending ? { pending } : {}),
+      ...(live?.completionUnread ? { fresh: true } : {}),
+      ...(entry?.blank ? { blank: true } : {}),
+      ...(archived.has(id) ? { archived: true } : {}),
+      // Only a ready catalog may claim absence; an unready one "cannot tell".
+      ...(catalog?.phase === 'ready' && !entry && !archived.has(id) ? { missing: true } : {}),
+      ...(entry?.displayTitle ? { title: entry.displayTitle } : {}),
+      ...(entry?.projectionValues?.agentPreset ? { agentPreset: entry.projectionValues.agentPreset } : {}),
+      ...(tokens !== undefined ? { tokens } : {}),
+      ...(subagents !== undefined ? { runningSubagents: subagents } : {}),
+      ...(typeof entry?.updatedAt === 'number' && entry.updatedAt > 0 ? { updatedAt: entry.updatedAt } : {}),
+    });
+  }
+  return result;
+}
+
+/**
+ * One shared status source: `get` recomputes from whatever services exist, and
+ * `subscribe` fans their store notifications out. Every service is optional —
+ * a Client without `uiSession` still reports running/idle from the catalog.
+ */
+export function createSessionStatusSource(scope: DshAdapterScope): SessionStatusSource {
+  const listeners = new Set<() => void>();
+  const wired = new Set<string>();
+  const emit = () => { for (const listener of [...listeners]) listener(); };
+  const wire = (name: string, store: { subscribe(listener: () => void): (() => void) | void } | undefined) => {
+    if (!store || wired.has(name)) return;
+    wired.add(name);
+    // A store's own dispose is dropped: this source lives for the plugin's
+    // Client lifetime, shorter than every service it reads.
+    store.subscribe(emit);
+  };
+  const ensure = () => {
+    wire('sessions', (scope.get('sessions') as SessionCatalogService | undefined)?.list);
+    wire('uiSession', (scope.get('uiSession') as UiSessionService | undefined)?.sessionStatus);
+    wire('workspaces', (scope.get('workspaces') as WorkspaceService | undefined)?.list);
+  };
+  return {
+    get() { ensure(); return collectSessionStatuses(scope); },
+    subscribe(listener) {
+      ensure();
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+  };
+}
+
 export async function unwrap<T>(pending: Promise<Result<T>>): Promise<T> {
   const result = await pending;
   if (!result.ok) {
@@ -152,6 +275,7 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
   };
   const remote = scope.get('remote.taskmd') as TaskmdRemote | undefined;
   if (!remote) throw new Error('taskmd: the Remote namespace did not mount');
+  const statusSource = createSessionStatusSource(scope);
   const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
   const port: TaskGraphPort = {
     getState(signal) {
@@ -193,6 +317,7 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
       signalFor(signal).throwIfAborted();
       return observe(unwrap(remote.bindings(taskId === undefined ? {} : { taskId })), signalFor(signal));
     },
+    statuses: () => statusSource,
     async open(sessionId) {
       lifetime.signal.throwIfAborted();
       // Refuse the three unreachable cases before the layout navigates, so the

@@ -115,11 +115,11 @@ interface LaunchProgress {
 const freshProgress = (): LaunchProgress => ({ bound: false, modelApplied: false, sent: false, opened: false });
 
 /** Task identity owns the form and all retry state. */
-export function TaskSessionLauncher(props: { task: Task; capability: SessionCapability }) {
+export function TaskSessionLauncher(props: { task: Task; capability: SessionCapability; defaultOpen?: boolean }) {
   return <SessionLaunchForm key={props.task.id} {...props} />;
 }
 
-function SessionLaunchForm({ task, capability }: { task: Task; capability: SessionCapability }) {
+function SessionLaunchForm({ task, capability, defaultOpen = false }: { task: Task; capability: SessionCapability; defaultOpen?: boolean }) {
   const { workspaces, directory, match, error: loadError } = useWorkspaceTarget(task, capability);
   const [chosen, setChosen] = useState('');
   const [manual, setManual] = useState('');
@@ -205,7 +205,7 @@ function SessionLaunchForm({ task, capability }: { task: Task; capability: Sessi
   };
   const candidates = match?.kind === 'candidates' ? match.list : [];
   const frozen = busy || !!current.delivery;
-  return <details className="taskmd-box taskmd-launcher" aria-label="从任务新建会话"><summary>从任务新建会话</summary>
+  return <details className="taskmd-box taskmd-launcher" open={defaultOpen} aria-label="从任务新建会话"><summary>从任务新建会话</summary>
     {loadError && <p className="taskmd-error" role="alert">{loadError}</p>}
     <fieldset className="taskmd-launch-options" disabled={busy || !!current.sessionId}>
       {!task.repo && <p className="taskmd-muted">请选择工作目录。</p>}

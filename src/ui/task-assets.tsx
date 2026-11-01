@@ -71,7 +71,7 @@ export function TaskAssets({ record, state, port, onChanged }: {
     finally { locked.current = false; setRemoving(false); }
   };
   if (!record.task.assets.length) return null;
-  return <details className="taskmd-box taskmd-assets" open><summary>资源引用（{record.task.assets.length}）</summary>
+  return <details className="taskmd-box taskmd-assets" aria-label="资源引用"><summary>资源引用（{record.task.assets.length}）</summary>
     {error && <p className="taskmd-error" role="alert">{error}</p>}
     {record.task.assets.map((asset, index) => <AssetRow key={`${record.task.id}:${record.version}:${index}`} taskId={record.task.id}
       asset={asset} index={index} port={port} removing={removing} onRemove={remove} />)}

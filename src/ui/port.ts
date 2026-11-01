@@ -49,12 +49,47 @@ export interface ModelCatalog {
 }
 
 /**
+ * Live execution facts for one DSH session, merged from the Client's own
+ * session stores. Purely derived display state: nothing here writes back to
+ * the Task or the binding.
+ */
+export interface SessionStatus {
+  sessionId: string;
+  /** An approval, plan review or question waiting for the user. */
+  pending?: 'approval' | 'plan-review' | 'question';
+  running: boolean;
+  /** The agent finished but nobody opened the session since. */
+  fresh?: boolean;
+  /** Created but no first turn yet. */
+  blank?: boolean;
+  archived?: boolean;
+  /** The Client's ready session catalog does not contain this id. */
+  missing?: boolean;
+  title?: string;
+  agentPreset?: string;
+  /** Accumulated provider tokens, when the projection reports them. */
+  tokens?: number;
+  /** Live subagents of this session currently running. */
+  runningSubagents?: number;
+  /** Milliseconds since the epoch of the last durable activity, when known. */
+  updatedAt?: number;
+}
+
+/** A subscribable snapshot of session statuses keyed by session id. */
+export interface SessionStatusSource {
+  get(): Map<string, SessionStatus>;
+  subscribe(listener: () => void): () => void;
+}
+
+/**
  * DSH-side Session operations. The standalone Web UI has no Session service at
  * all, so every member beyond the binding surface is optional and the UI must
  * degrade when one is missing.
  */
 export interface SessionCapability {
   list(taskId?: string, signal?: AbortSignal): Promise<TaskSessionBinding[]>;
+  /** Live per-session execution status; absent in the standalone Web UI. */
+  statuses?(): SessionStatusSource;
   open(sessionId: string): Promise<void>;
   /**
    * Creates a blank Session at a Workspace or directory (never both) and binds
