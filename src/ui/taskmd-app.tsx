@@ -420,7 +420,7 @@ function TaskExecution({ task, capability, port, currentSessionId, agent, startB
     {task.status === 'todo' && (agent?.running ?? 0) > 0 && <p className="taskmd-agent-hint" role="status">
       关联会话已在执行，但任务仍是待办。<button disabled={startBusy} onClick={onStart}>开始任务</button>
     </p>}
-    {task.status === 'in_progress' && freshSession && <p className="taskmd-agent-hint is-fresh" role="status">
+    {freshSession && <p className="taskmd-agent-hint is-fresh" role="status">
       有会话已出结果，还没查看。<button disabled={busy} onClick={() => { void run(() => capability.open(freshSession.sessionId)); }}>查看会话</button>
     </p>}
     {!!rows?.length && <ul className="taskmd-sessions">{rows.map(({ binding, status }) => {
