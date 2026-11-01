@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import { TaskmdApp, TaskmdDetailPanel, TaskmdSidebar } from '../ui/taskmd-app.js';
+import { TaskmdLeftSidebar } from '../ui/left-sidebar.js';
 import type { TaskRecord } from '../types.js';
 import { asError, createDshAdapters, watchChanges } from '../adapters/dsh.js';
 import { TYPERT_REMOTE } from './remote.js';
@@ -49,7 +50,7 @@ interface ClientContext {
   inject?(names: string[], setup: (ctx: ClientContext) => Dispose): { dispose(): void };
   slots: {
     inject(name: string, setup: () => Dispose): Dispose;
-    register<P>(options: { name: string; key?: string; id?: string; order?: number; label?: string }, component: ComponentType<P>): Dispose;
+    register<P>(options: { name: string; key?: string; id?: string; order?: number; label?: string; priority?: number }, component: ComponentType<P>): Dispose;
   };
   remote: {
     $mount(contribution: typeof TYPERT_REMOTE): Promise<Dispose>;
@@ -226,6 +227,60 @@ async function setup(ctx: ClientContext): Promise<void> {
     patterns: ['dsh-resource://taskmd/*'],
     canOpen: (address) => taskIdOf(address) !== undefined,
   }), 'taskmd: detail tab type');
+
+  // Replace only the Workspace/Session browser, never the DSH sidebar shell.
+  // The footer toggle lives outside this single Slot, so switching back always works.
+  // The native WorkspaceBrowser remains registered behind our priority -1 occupant.
+  type SidebarMode = 'sessions' | 'tasks';
+  const modeKey = 'taskmd.sidebar.mode.v1';
+  let sidebarMode: SidebarMode = 'sessions';
+  try { if (localStorage.getItem(modeKey) === 'tasks') sidebarMode = 'tasks'; } catch { /* storage is optional */ }
+  const listeners = new Set<() => void>();
+  let sidebarSlotMounted = false;
+  let disposeTaskSidebar: Dispose | undefined;
+  function TaskBrowser({ wide, expandSidebar }: { wide: boolean; expandSidebar(): void }) {
+    return <TaskmdLeftSidebar port={port} sessions={sessions} wide={wide}
+      expandSidebar={expandSidebar} showSessions={() => setSidebarMode('sessions')} />;
+  }
+  const installTaskSidebar = () => {
+    if (sidebarSlotMounted && sidebarMode === 'tasks' && !disposeTaskSidebar) {
+      disposeTaskSidebar = ctx.slots.register({ name: 'sidebar.workspaces', priority: -1 }, TaskBrowser);
+    }
+  };
+  const setSidebarMode = (next: SidebarMode) => {
+    if (sidebarMode === next) return;
+    sidebarMode = next;
+    try { localStorage.setItem(modeKey, next); } catch { /* storage is optional */ }
+    if (next === 'tasks') installTaskSidebar();
+    else { disposeTaskSidebar?.(); disposeTaskSidebar = undefined; }
+    for (const notify of [...listeners]) notify();
+  };
+  function SidebarSwitch({ wide }: { wide: boolean }) {
+    const [mode, setMode] = useState<SidebarMode>(() => sidebarMode);
+    useEffect(() => {
+      const notify = () => setMode(sidebarMode);
+      listeners.add(notify);
+      return () => { listeners.delete(notify); };
+    }, []);
+    const tasks = mode === 'tasks';
+    return <button type="button" onClick={() => setSidebarMode(tasks ? 'sessions' : 'tasks')}
+      title={tasks ? '切换到 DSH 会话列表' : '切换到 taskmd 任务大纲'}
+      aria-label={tasks ? '切换到 DSH 会话列表' : '切换到 taskmd 任务大纲'}
+      aria-pressed={tasks} style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        padding: '8px 10px', width: wide ? '100%' : 40, minHeight: 36,
+        border: 'none', borderRadius: 7, background: tasks ? 'color-mix(in srgb,currentColor 9%,transparent)' : 'transparent',
+        color: 'inherit', cursor: 'pointer', font: 'inherit',
+      }}><TasksIcon />{wide && <span style={{ flex: 1, textAlign: 'left' }}>{tasks ? '任务大纲 · 切换会话' : '任务大纲'}</span>}</button>;
+  }
+  ctx.effect(() => ctx.slots.inject('sidebar.workspaces', () => {
+    sidebarSlotMounted = true;
+    installTaskSidebar();
+    return () => { sidebarSlotMounted = false; disposeTaskSidebar?.(); disposeTaskSidebar = undefined; };
+  }), 'taskmd: switchable native/task sidebar');
+  ctx.effect(() => ctx.slots.inject('sidebar.footer.action', () =>
+    ctx.slots.register({ name: 'sidebar.footer.action', id: 'taskmd.sidebar-switch', order: 60 }, SidebarSwitch)
+  ), 'taskmd: persistent sidebar switch');
 
   ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL }, Root)), 'taskmd: main panel');
   ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL, order: 20, label: 'Tasks' }, TasksIcon)), 'taskmd: sidebar entry');
