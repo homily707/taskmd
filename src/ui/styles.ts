@@ -199,6 +199,24 @@ export const styles = `
 .taskmd-left-sidebar .taskmd-status-dot{width:10px;height:10px;flex:none;margin:0 3px 0 0}
 .taskmd-left-sidebar .taskmd-status-dot.is-done:after{font-size:8px;line-height:8px}
 .taskmd-left-sidebar .taskmd-agent-chip{max-width:76px;overflow:hidden;text-overflow:ellipsis;padding:1px 4px;font-size:10px;margin-right:3px;flex:none}
+.taskmd-left-session-chip{flex:none;border:0;border-radius:999px;padding:1px 5px;font-size:10px;line-height:1.5;color:var(--tm-muted);background:var(--tm-hover);white-space:nowrap}
+.taskmd-left-session-chip:hover{color:var(--tm-accent);background:var(--tm-accent-mix)}
+.taskmd-left-session-chip[aria-expanded=true]{color:var(--tm-accent);background:var(--tm-accent-mix)}
+/* The picker is portalled to document.body, outside .taskmd-app; redeclare its theme tokens. */
+.taskmd-session-picker{--tm-border:color-mix(in srgb,CanvasText 15%,transparent);--tm-line:color-mix(in srgb,CanvasText 10%,transparent);--tm-muted:color-mix(in srgb,CanvasText 62%,transparent);--tm-hover:color-mix(in srgb,CanvasText 6%,transparent);--tm-accent:#557ee8;--tm-accent-mix:color-mix(in srgb,var(--tm-accent) 12%,transparent);--tm-ok:#2e9e5b;--tm-warn:#d98a00;--tm-run:#2f7de1;--tm-err:#d0453b;position:fixed;z-index:80;max-height:300px;overflow:auto;background:Canvas;color:CanvasText;border:1px solid var(--tm-border);border-radius:8px;box-shadow:0 8px 28px rgb(0 0 0/.2);padding:6px;font:12px/1.45 system-ui,-apple-system,sans-serif;box-sizing:border-box}
+.taskmd-session-picker *{box-sizing:border-box}
+.taskmd-session-picker-head{display:flex;align-items:center;gap:8px;padding:2px 4px 6px;border-bottom:1px solid var(--tm-line);min-width:0}
+.taskmd-session-picker-head .taskmd-session-picker-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.taskmd-session-picker-head .taskmd-muted{flex:none;color:var(--tm-muted);font-size:11px}
+.taskmd-session-picker-item{width:100%;display:flex;align-items:center;gap:7px;border:0;border-radius:6px;padding:6px 4px;margin:1px 0;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}
+.taskmd-session-picker-item:hover{background:var(--tm-hover)}
+.taskmd-session-picker-item:disabled{opacity:.5;cursor:default}
+.taskmd-session-picker-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.taskmd-session-picker-meta{flex:none;color:var(--tm-muted);font-size:10.5px}
+.taskmd-session-picker .taskmd-left-session-dot{width:7px;height:7px;border-radius:50%;background:var(--tm-muted);flex:none}
+.taskmd-session-picker .taskmd-left-session-dot.is-attention{background:var(--tm-warn)}
+.taskmd-session-picker .taskmd-left-session-dot.is-running{background:var(--tm-run);animation:taskmd-pulse 1.2s infinite}
+.taskmd-session-picker .taskmd-left-session-dot.is-fresh{background:var(--tm-ok)}
 /* Active sessions: every running/attention session in this Client, above the outline. */
 .taskmd-left-active{flex:none;padding:0 4px 5px;border-bottom:1px solid var(--tm-line)}
 .taskmd-left-active-head{display:flex;align-items:center;gap:6px;margin:0 0 2px;font-size:12px;min-width:0}

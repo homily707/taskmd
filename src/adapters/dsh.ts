@@ -321,6 +321,9 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
       return observe(unwrap(remote.bindings(taskId === undefined ? {} : { taskId })), signalFor(signal));
     },
     statuses: () => statusSource,
+    title(sessionId) {
+      return (scope.get('sessions') as SessionCatalogService | undefined)?.list.getSnapshot().byId[sessionId]?.displayTitle;
+    },
     async open(sessionId) {
       lifetime.signal.throwIfAborted();
       // Refuse the three unreachable cases before the layout navigates, so the

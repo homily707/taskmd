@@ -90,6 +90,8 @@ export interface SessionCapability {
   list(taskId?: string, signal?: AbortSignal): Promise<TaskSessionBinding[]>;
   /** Live per-session execution status; absent in the standalone Web UI. */
   statuses?(): SessionStatusSource;
+  /** The session's display title when the Client catalog knows it. */
+  title?(sessionId: string): string | undefined;
   open(sessionId: string): Promise<void>;
   /**
    * Creates a blank Session at a Workspace or directory (never both) and binds

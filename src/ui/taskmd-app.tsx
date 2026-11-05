@@ -20,6 +20,10 @@ export interface TaskmdAppProps {
   initialTaskId?: string;
   sessionId?: string;
   onOpenTask?(id: string): void;
+  /** One-shot request from the DSH left sidebar: select this Task and unfold its launcher. */
+  openTask?: { taskId: string; nonce: number };
+  /** Confirms the host consumed the request, so a later panel mount does not replay it. */
+  onOpenTaskHandled?(nonce: number): void;
 }
 
 /** Narrow view switches between the list and the detail instead of squeezing two columns. */
@@ -68,6 +72,8 @@ function useTaskAgentView(sessions: SessionCapability | undefined, taskId: strin
  */
 export function useAgentBindings(sessions: SessionCapability | undefined, port: TaskGraphPort) {
   const [bindings, setBindings] = useState<TaskSessionBinding[]>();
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const [tick, setTick] = useState(0);
   const statusSource = sessions?.statuses?.();
@@ -79,15 +85,36 @@ export function useAgentBindings(sessions: SessionCapability | undefined, port: 
   useEffect(() => {
     if (!sessions) return;
     const controller = new AbortController();
+    setLoaded(false);
     void sessions.list(undefined, controller.signal)
-      .then(value => { if (!controller.signal.aborted) setBindings(value); })
-      .catch(() => { if (!controller.signal.aborted) setBindings(undefined); });
+      .then(value => {
+        if (controller.signal.aborted) return;
+        setBindings(value);
+        setError('');
+        setLoaded(true);
+      })
+      .catch(reason => {
+        if (controller.signal.aborted) return;
+        setBindings(undefined);
+        setError(failure(reason));
+        setLoaded(false);
+      });
     return () => controller.abort();
   }, [sessions, reload]);
+  const statuses = useMemo(() => statusSource?.get() ?? new Map<string, SessionStatus>(), [statusSource, tick]);
+  const bindingsByTask = useMemo(() => {
+    const map = new Map<string, TaskSessionBinding[]>();
+    for (const binding of bindings ?? []) {
+      const list = map.get(binding.taskId) ?? [];
+      list.push(binding);
+      map.set(binding.taskId, list);
+    }
+    for (const list of map.values()) list.sort(compareBindings);
+    return map;
+  }, [bindings]);
   const views = useMemo(() => {
     const map = new Map<string, TaskAgentView>();
     if (!bindings || !statusSource) return map;
-    const statuses = statusSource.get();
     const byTask = new Map<string, SessionStatus[]>();
     for (const binding of bindings) {
       const status = statuses.get(binding.sessionId);
@@ -98,13 +125,13 @@ export function useAgentBindings(sessions: SessionCapability | undefined, port: 
     }
     for (const [taskId, list] of byTask) map.set(taskId, agentView(list));
     return map;
-  }, [bindings, statusSource, tick]);
+  }, [bindings, statusSource, statuses]);
   const totals = useMemo(() => {
     let attention = 0, running = 0, fresh = 0;
     for (const view of views.values()) { attention += view.attention; running += view.running; fresh += view.fresh; }
     return { attention, running, fresh };
   }, [views]);
-  return { views, totals, enabled: !!statusSource && !!sessions };
+  return { views, totals, enabled: !!statusSource && !!sessions, bindings, bindingsByTask, statuses, error, loaded };
 }
 
 /** Rolls every descendant's sessions into one view for parent rows and pills. */
@@ -119,7 +146,7 @@ export function subtreeViews(tasks: Task[] | undefined, views: Map<string, TaskA
   return map;
 }
 
-export function TaskmdApp({ port, sessions, initialTaskId, sessionId, onOpenTask }: TaskmdAppProps) {
+export function TaskmdApp({ port, sessions, initialTaskId, sessionId, onOpenTask, openTask, onOpenTaskHandled }: TaskmdAppProps) {
   const { state, error, refresh } = useTasks(port);
   // Selection, view, width and filters survive leaving the panel or reloading the page.
   const [selected, setSelected] = useStored<string | undefined>('selected', initialTaskId,
@@ -142,8 +169,26 @@ export function TaskmdApp({ port, sessions, initialTaskId, sessionId, onOpenTask
   const narrow = useNarrow(root);
   const agent = useAgentBindings(sessions, port);
   const [jump, setJump] = useState<{ id: string; nonce: number }>();
+  const [launch, setLaunch] = useState<{ taskId: string; nonce: number }>();
+  const handledOpen = useRef(0);
   // Only an explicit prop overrides the remembered selection.
   useEffect(() => { if (initialTaskId !== undefined) setSelected(initialTaskId); }, [initialTaskId, setSelected]);
+  // The DSH left sidebar's no-session path arrives while this panel may be
+  // unmounted; the plugin-level signal survives that gap. A nonce keeps an
+  // ordinary re-render (or a later panel mount) from replaying the request.
+  useEffect(() => {
+    if (!openTask || openTask.nonce === handledOpen.current) return;
+    handledOpen.current = openTask.nonce;
+    if (dirty && !window.confirm('当前修改尚未保存。要切换任务吗？未保存草稿会保留在本会话存储中。')) {
+      onOpenTaskHandled?.(openTask.nonce);
+      return;
+    }
+    setDirty(false);
+    setSelected(openTask.taskId);
+    setPane('detail');
+    setLaunch({ taskId: openTask.taskId, nonce: openTask.nonce });
+    onOpenTaskHandled?.(openTask.nonce);
+  }, [openTask, dirty, setSelected, setPane, onOpenTaskHandled]);
   const ready = useMemo(() => new Set(state?.ready || []), [state]);
   const subtree = useMemo(() => subtreeViews(state?.tasks, agent.views), [state, agent.views]);
   const jumpTo = (level: 'attention' | 'running' | 'fresh') => {
@@ -172,6 +217,7 @@ export function TaskmdApp({ port, sessions, initialTaskId, sessionId, onOpenTask
     if (selected === id && !(narrow && pane === 'list')) return;
     if (dirty && !window.confirm('当前修改尚未保存。要切换任务吗？未保存草稿会保留在本会话存储中。')) return;
     if (initialTaskId !== undefined && onOpenTask) { onOpenTask(id); return; }
+    setLaunch(undefined);
     setDirty(false); setSelected(id); if (narrow) setPane('detail');
   };
   return <div className="taskmd-app" ref={root} data-pane={narrow ? pane : 'wide'}>
@@ -238,6 +284,7 @@ export function TaskmdApp({ port, sessions, initialTaskId, sessionId, onOpenTask
       <section className="taskmd-details" aria-label="任务详情">
         {state && selected ? <TaskDetail key={selected} id={selected} port={port} state={state} task={current}
           sessions={sessions} sessionId={sessionId} agent={agent.views.get(selected)} onSelect={choose} onChanged={refresh} onDirty={setDirty}
+          launchTask={launch?.taskId === selected ? launch.nonce : undefined}
           /> : <p className="taskmd-muted">选择一个任务，查看详情和关联会话。</p>}
       </section>
     </div>
@@ -258,10 +305,12 @@ export function TaskmdDetailPanel({ port, sessions, sessionId, taskId, onOpenTas
   </div>;
 }
 
-function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelect, onChanged, onDirty }: {
+function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelect, onChanged, onDirty, launchTask }: {
   id: string; port: TaskGraphPort; state: State; task?: Task; sessions?: SessionCapability; sessionId?: string;
   agent?: TaskAgentView;
   onSelect(id: string): void; onChanged(): Promise<void>; onDirty(dirty: boolean): void;
+  /** A DSH left-sidebar open signal: unfold this Task's launcher once per nonce. */
+  launchTask?: number;
 }) {
   const [record, setRecord] = useState<TaskRecord>();
   const [error, setError] = useState('');
@@ -339,7 +388,7 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
         <p className="taskmd-muted">以上为本任务或其祖先的直接依赖，只读说明，不可在此编辑继承依赖。</p>
       </section>}
       {sessions && <TaskExecution key={id} task={displayed} capability={sessions} port={port} currentSessionId={sessionId}
-        agent={agent} startBusy={busy} onStart={() => { void start(); }} />}
+        agent={agent} startBusy={busy} onStart={() => { void start(); }} launchTask={launchTask} />}
       {record && <TaskProperties task={displayed} record={record} port={port} state={state} onChanged={onChanged} onSelect={onSelect} onDirty={setPropertiesDirty} bodyDirty={editorDirty} />}
       {record && <TaskEditor record={record} port={port} state={state} onChanged={onChanged} onDirty={setEditorDirty} />}
       {record && <TaskAssets record={record} state={state} port={port} onChanged={onChanged} />}
@@ -348,7 +397,7 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
 }
 
 /** Last opened first; missing `lastOpenedAt` falls back to `createdAt`, then session id for stability. */
-function compareBindings(a: TaskSessionBinding, b: TaskSessionBinding): number {
+export function compareBindings(a: TaskSessionBinding, b: TaskSessionBinding): number {
   const at = a.lastOpenedAt ?? a.createdAt, bt = b.lastOpenedAt ?? b.createdAt;
   return at !== bt ? at < bt ? 1 : -1 : a.sessionId.localeCompare(b.sessionId);
 }
@@ -370,9 +419,9 @@ const badgeGlyphs: Record<AgentLevel, string> = {
 };
 
 /** Session rows under one Task, with live state, soft hints and the launcher folded in. */
-function TaskExecution({ task, capability, port, currentSessionId, agent, startBusy, onStart }: {
+function TaskExecution({ task, capability, port, currentSessionId, agent, startBusy, onStart, launchTask }: {
   task: Task; capability: SessionCapability; port: TaskGraphPort; currentSessionId?: string;
-  agent?: TaskAgentView; startBusy: boolean; onStart(): void;
+  agent?: TaskAgentView; startBusy: boolean; onStart(): void; launchTask?: number;
 }) {
   const taskId = task.id;
   const [bindings, setBindings] = useState<TaskSessionBinding[]>();
@@ -381,9 +430,10 @@ function TaskExecution({ task, capability, port, currentSessionId, agent, startB
   const [listError, setListError] = useState('');
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(launchTask !== undefined);
   const [tick, setTick] = useState(0);
   const statusSource = capability.statuses?.();
+  useEffect(() => { if (launchTask !== undefined) setCreating(true); }, [launchTask]);
   useEffect(() => port.subscribe(() => setReload(value => value + 1)), [port]);
   useEffect(() => {
     if (!statusSource) return;
@@ -414,7 +464,7 @@ function TaskExecution({ task, capability, port, currentSessionId, agent, startB
       <h4>执行{(rows?.length ?? 0) > 0 ? ` · ${rows!.length}` : ''}</h4>
       <button className="taskmd-new-session" aria-expanded={creating} onClick={() => setCreating(value => !value)}>＋ 新会话</button>
     </div>
-    {creating && <TaskSessionLauncher task={task} capability={capability} defaultOpen />}
+    {creating && <TaskSessionLauncher task={task} capability={capability} defaultOpen openNonce={launchTask} />}
     {error && <p role="alert" className="taskmd-error">{error}</p>}
     {listError && <p role="alert" className="taskmd-error">{listError} <button onClick={() => setReload(value => value + 1)}>重试</button></p>}
     {task.status === 'todo' && (agent?.running ?? 0) > 0 && <p className="taskmd-agent-hint" role="status">

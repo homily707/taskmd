@@ -5,11 +5,14 @@ import type { TaskGraphPort } from './port.js';
 export const statusLabels = { todo: '待办', in_progress: '进行中', done: '完成', canceled: '取消' } as const;
 export const compareTasks = (a: Task, b: Task) => a.order < b.order ? -1 : a.order > b.order ? 1 : a.id.localeCompare(b.id);
 export function failure(error: unknown): string {
-  const e = error as { message?: string; details?: unknown };
+  const e = error as { message?: string; hint?: string; details?: unknown };
   const details = e?.details;
   const diagnostics = Array.isArray(details) ? details : details && typeof details === 'object' && 'diagnostics' in details ? (details as { diagnostics: unknown }).diagnostics : [];
   const messages = Array.isArray(diagnostics) ? diagnostics.map(d => typeof d?.message === 'string' ? d.message : '').filter(Boolean) : [];
-  return [e?.message || String(error), ...messages].join('\n');
+  const message = e?.message || String(error);
+  // Some adapters fold the hint into the message already; avoid repeating it.
+  const hint = typeof e?.hint === 'string' && e.hint && !message.includes(e.hint) ? e.hint : '';
+  return [message, hint, ...messages].filter(Boolean).join('\n');
 }
 export function useTasks(port: TaskGraphPort) {
   const [state, setState] = useState<State>();

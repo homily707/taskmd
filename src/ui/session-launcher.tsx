@@ -119,11 +119,17 @@ interface LaunchProgress {
 const freshProgress = (): LaunchProgress => ({ bound: false, modelApplied: false, sent: false, opened: false });
 
 /** Task identity owns the form and all retry state. */
-export function TaskSessionLauncher(props: { task: Task; capability: SessionCapability; defaultOpen?: boolean }) {
+export function TaskSessionLauncher(props: { task: Task; capability: SessionCapability; defaultOpen?: boolean; openNonce?: number }) {
   return <SessionLaunchForm key={props.task.id} {...props} />;
 }
 
-function SessionLaunchForm({ task, capability, defaultOpen = false }: { task: Task; capability: SessionCapability; defaultOpen?: boolean }) {
+function SessionLaunchForm({ task, capability, defaultOpen = false, openNonce }: { task: Task; capability: SessionCapability; defaultOpen?: boolean; openNonce?: number }) {
+  const details = useRef<HTMLDetailsElement>(null);
+  // A new left-sidebar open signal re-expands the section. Ordinary re-renders
+  // leave the reader's manual fold alone because this effect keys on the nonce.
+  useEffect(() => {
+    if (defaultOpen && details.current) details.current.open = true;
+  }, [defaultOpen, openNonce]);
   const { workspaces, directory, currentDirectory, match, error: loadError } = useWorkspaceTarget(task, capability);
   const [chosen, setChosen] = useState('');
   const [manual, setManual] = useState('');
@@ -208,7 +214,7 @@ function SessionLaunchForm({ task, capability, defaultOpen = false }: { task: Ta
     catch { setNotice('浏览器拒绝了剪贴板访问，请手动选中文本复制。'); }
   };
   const frozen = busy || !!current.delivery;
-  return <details className="taskmd-box taskmd-launcher" open={defaultOpen} aria-label="从任务新建会话"><summary>从任务新建会话</summary>
+  return <details className="taskmd-box taskmd-launcher" ref={details} open={defaultOpen} aria-label="从任务新建会话"><summary>从任务新建会话</summary>
     {loadError && <p className="taskmd-error" role="alert">{loadError}</p>}
     <fieldset className="taskmd-launch-options" disabled={busy || !!current.sessionId}>
       <label>工作目录<select value={chosen} onChange={event => setChosen(event.target.value)}>

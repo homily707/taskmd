@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentType } from 'react';
 import { TaskmdApp, TaskmdDetailPanel, TaskmdSidebar } from '../ui/taskmd-app.js';
 import { TaskmdLeftSidebar } from '../ui/left-sidebar.js';
 import type { TaskRecord } from '../types.js';
@@ -17,6 +17,19 @@ interface TabProps {
       actions: { openResource(address: string, options?: { kind?: string }): void };
     };
   };
+}
+
+/** The per-session right-sidebar navigation face used by the left sidebar hand-off. */
+interface SidebarRightService {
+  mounted: {
+    getSnapshot(): string | undefined;
+    subscribe(listener: () => void): () => void;
+  };
+  openResource(address: string, options?: { kind?: string }): void;
+}
+
+interface LayoutService {
+  selectPanel(panelId: string | null): void;
 }
 
 /** One physical chord as `@deepseek-ai/dsh-client-shortcuts` stores it. */
@@ -130,6 +143,40 @@ async function setup(ctx: ClientContext): Promise<void> {
   // One store and one supervised Host stream serve the root, session tabs and resources.
   const { port, sessions, store, invalidate, clear, remote, signalFor } = createDshAdapters(ctx, lifetime);
 
+  // Plugin-lifetime hand-offs. Both outlive the left sidebar and the keyed main
+  // panel: a click can unmount the sidebar's task panel before the right
+  // sidebar's per-session surface exists, and a no-session click arrives while
+  // the main panel may still be unmounted.
+  type PendingActivation = { taskId: string; sessionId: string; token: number };
+  let pendingActivation: PendingActivation | undefined;
+  const pendingListeners = new Set<() => void>();
+  const getPending = () => pendingActivation;
+  const subscribePending = (listener: () => void) => {
+    pendingListeners.add(listener);
+    return () => { pendingListeners.delete(listener); };
+  };
+  const setPending = (next: PendingActivation | undefined) => {
+    pendingActivation = next;
+    for (const listener of [...pendingListeners]) listener();
+  };
+
+  type TaskOpen = { taskId: string; nonce: number };
+  let taskOpen: TaskOpen | undefined;
+  let taskOpenNonce = 0;
+  const taskOpenListeners = new Set<() => void>();
+  const getTaskOpen = () => taskOpen;
+  const subscribeTaskOpen = (listener: () => void) => {
+    taskOpenListeners.add(listener);
+    return () => { taskOpenListeners.delete(listener); };
+  };
+  const setTaskOpen = (next: TaskOpen | undefined) => {
+    taskOpen = next;
+    for (const listener of [...taskOpenListeners]) listener();
+  };
+  // One sequence makes the latest click win even when two opens resolve out of
+  // order; a session click also retires a queued task-panel request.
+  let activationToken = 0;
+
   ctx.effect(() => {
     const running = watchChanges(ctx, remote, lifetime, invalidate);
     return async () => {
@@ -176,7 +223,12 @@ async function setup(ctx: ClientContext): Promise<void> {
   }), 'taskmd: task resources');
 
   function Root() {
-    return <TaskmdApp port={port} sessions={sessions} />;
+    const request = useSyncExternalStore(subscribeTaskOpen, getTaskOpen, getTaskOpen);
+    const handled = useCallback((nonce: number) => {
+      if (taskOpen?.nonce === nonce) setTaskOpen(undefined);
+    }, []);
+    return <TaskmdApp port={port} sessions={sessions} initialTaskId={request?.taskId}
+      openTask={request} onOpenTaskHandled={handled} />;
   }
   function SessionTasks({ sessionId, useTabInfo }: TabProps) {
     const { tab } = useTabInfo();
@@ -214,6 +266,45 @@ async function setup(ctx: ClientContext): Promise<void> {
     return <span>{title}</span>;
   }
 
+  /**
+   * Resident once the `sidebarRight` service exists. It waits until the target
+   * Session is the one on screen, then opens the Task detail tab. `mounted`
+   * changes before React renders, so this effect runs in the commit that mints
+   * the target session's surface; one frame of retry covers the store mint.
+   */
+  function TaskActivationBridge({ service }: { service: SidebarRightService }) {
+    const mounted = useSyncExternalStore(
+      useCallback((listener: () => void) => service.mounted.subscribe(listener), [service]),
+      () => service.mounted.getSnapshot(),
+      () => service.mounted.getSnapshot(),
+    );
+    const pending = useSyncExternalStore(subscribePending, getPending, getPending);
+    const [retryTick, setRetryTick] = useState(0);
+    const attempts = useRef(new Map<number, number>());
+    useEffect(() => {
+      if (!pending || pending.sessionId !== mounted) return;
+      let retry: number | undefined;
+      try {
+        service.openResource(addressOf(pending.taskId), { kind: DETAIL_KIND });
+        attempts.current.delete(pending.token);
+        setPending(undefined);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const tried = attempts.current.get(pending.token) ?? 0;
+        if (message.includes('no session surface is mounted') && tried < 1) {
+          attempts.current.set(pending.token, tried + 1);
+          retry = requestAnimationFrame(() => setRetryTick(value => value + 1));
+        } else {
+          attempts.current.delete(pending.token);
+          console.error('taskmd: opening the task detail tab failed', error);
+          setPending(undefined);
+        }
+      }
+      return () => { if (retry !== undefined) cancelAnimationFrame(retry); };
+    }, [service, mounted, pending, retryTick]);
+    return null;
+  }
+
   ctx.effect(() => ctx.sidebarRightTabs.register({
     id: SESSION_TAB,
     kind: 'taskmdSession',
@@ -231,6 +322,29 @@ async function setup(ctx: ClientContext): Promise<void> {
   // Replace only the Workspace/Session browser, never the DSH sidebar shell.
   // The footer toggle lives outside this single Slot, so switching back always works.
   // The native WorkspaceBrowser remains registered behind our priority -1 occupant.
+  /** Opens one bound Session, then hands its Task to the right sidebar coordinator. */
+  async function activateSession(taskId: string, sessionId: string): Promise<void> {
+    const token = ++activationToken;
+    setTaskOpen(undefined);
+    setPending(undefined);
+    try {
+      await sessions.open(sessionId);
+    } catch (error) {
+      if (token === activationToken) throw error;
+      return;
+    }
+    if (token !== activationToken) return;
+    if (ctx.get('sidebarRight')) setPending({ taskId, sessionId, token });
+  }
+
+  /** Opens the taskmd main panel with a one-shot request to select and unfold a Task. */
+  function openTaskPanel(taskId: string): void {
+    activationToken += 1;
+    setPending(undefined);
+    setTaskOpen({ taskId, nonce: ++taskOpenNonce });
+    (ctx.get('layout') as LayoutService | undefined)?.selectPanel(PANEL);
+  }
+
   type SidebarMode = 'sessions' | 'tasks';
   const modeKey = 'taskmd.sidebar.mode.v1';
   let sidebarMode: SidebarMode = 'sessions';
@@ -240,7 +354,9 @@ async function setup(ctx: ClientContext): Promise<void> {
   let disposeTaskSidebar: Dispose | undefined;
   function TaskBrowser({ wide, expandSidebar }: { wide: boolean; expandSidebar(): void }) {
     return <TaskmdLeftSidebar port={port} sessions={sessions} wide={wide}
-      expandSidebar={expandSidebar} showSessions={() => setSidebarMode('sessions')} />;
+      expandSidebar={expandSidebar} showSessions={() => setSidebarMode('sessions')}
+      onActivateSession={activateSession} onOpenTask={openTaskPanel}
+      sessionTitle={(sessionId) => sessions.title?.(sessionId)} />;
   }
   const installTaskSidebar = () => {
     if (sidebarSlotMounted && sidebarMode === 'tasks' && !disposeTaskSidebar) {
@@ -281,6 +397,18 @@ async function setup(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.slots.inject('sidebar.footer.action', () =>
     ctx.slots.register({ name: 'sidebar.footer.action', id: 'taskmd.sidebar-switch', order: 60 }, SidebarSwitch)
   ), 'taskmd: persistent sidebar switch');
+
+  // Optional: a Client without the right Sidebar still opens Sessions, it just
+  // cannot attach the Task detail tab. The nested inject keeps that dependency
+  // out of the static list so the plugin still boots without the package.
+  ctx.inject?.(['sidebarRight'], (scope) => scope.effect(() => {
+    const service = scope.get('sidebarRight') as SidebarRightService | undefined;
+    if (!service) return () => {};
+    return scope.slots.inject('shell.overlay', () => scope.slots.register(
+      { name: 'shell.overlay', id: 'taskmd.task-activation' },
+      () => <TaskActivationBridge service={service} />,
+    ));
+  }, 'taskmd: right sidebar task hand-off'));
 
   ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL }, Root)), 'taskmd: main panel');
   ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL, order: 20, label: 'Tasks' }, TasksIcon)), 'taskmd: sidebar entry');
