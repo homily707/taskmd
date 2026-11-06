@@ -44,7 +44,8 @@ function BodyEditor({ record, port, state, onChanged, onDirty, compact = false }
   const [notice, setNotice] = useState('');
   const [storageError, setStorageError] = useState(false);
   const [source, setSource] = useState(false);
-  const [editing, setEditing] = useState(!compact);
+  // Task bodies are the main reading surface in the sidebar; start expanded.
+  const [editing, setEditing] = useState(true);
   const [Surface, setSurface] = useState<SurfaceComponent>();
   // Bumped only when the mounted CodeMirror document must be re-seeded (load,
   // discard, save, external change). The Atomic surface reads `markdownSource`

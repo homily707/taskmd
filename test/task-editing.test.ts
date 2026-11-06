@@ -688,7 +688,7 @@ test('a body-only patch through the real Store keeps frontmatter comments and un
   });
 });
 
-test('compact editor starts as a preview and expands on demand', async t => {
+test('compact editor starts expanded and can collapse to a preview', async t => {
   const task = makeTask();
   const { port } = portWith({
     record: () => makeRecord(task), state: () => makeState([task]),
@@ -698,11 +698,13 @@ test('compact editor starts as a preview and expands on demand', async t => {
     record: makeRecord(task), port, state: makeState([task]), onChanged: async () => {}, onDirty: () => {}, compact: true,
   }));
 
-  assert.equal(view.root.findAllByType('textarea').length, 0, 'the compact panel paints a preview first');
+  assert.equal(textarea(view).props.value, '# 原正文\n', 'the compact body is expanded by default');
+  assert.ok(button(view, '收起'));
+  await click(view, '收起');
+  assert.equal(view.root.findAllByType('textarea').length, 0, 'collapsing shows the preview');
   assert.ok(button(view, '编辑'));
   await click(view, '编辑');
   assert.equal(textarea(view).props.value, '# 原正文\n');
-  assert.ok(button(view, '收起'));
 });
 
 test('compact properties leave status to the header and keep destructive actions', async t => {

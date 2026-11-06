@@ -98,7 +98,6 @@ test('a body draft survives a header status change and rebases its save version'
   const target = task({ status: 'todo' });
   const { port, plans } = portWith(target);
   const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
-  await click(view, '编辑');
   const editor = view.root.findByType('textarea');
   await act(async () => { editor.props.onChange({ target: { value: '# 本地草稿\n' } }); });
 
