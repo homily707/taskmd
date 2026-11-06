@@ -51,13 +51,15 @@ export interface TaskPropertiesProps {
   /** Lets the host refuse navigation while properties are unsaved. */
   onDirty?(dirty: boolean): void;
   bodyDirty?: boolean;
+  /** Right-sidebar mode: status lives in the header; keep the remaining fields dense. */
+  compact?: boolean;
 }
 
 export function TaskProperties(props: TaskPropertiesProps) {
   return <PropertiesEditor key={props.task.id} {...props} />;
 }
 
-function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDirty, bodyDirty = false }: TaskPropertiesProps) {
+function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDirty, bodyDirty = false, compact = false }: TaskPropertiesProps) {
   const id = task.id;
   const [draft, setDraft] = useState(() => readDraft(id));
   const [action, setAction] = useState<'archive' | 'restore' | 'delete'>();
@@ -196,9 +198,15 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
     && terminal.includes(latest.record.task.status) && !terminal.includes(fields.status);
   const finishing = fields.status !== latest.record.task.status && fields.status === 'done';
   const submitLabel = action === 'delete' ? '确认永久删除' : action === 'archive' ? '确认归档' : action === 'restore' ? '确认取消归档' : finishing ? '明确完成并保存属性' : reopening ? '明确重新打开并保存属性' : '保存属性';
+  const operationHintIds = `taskmd-operation-hint-${id}`;
+  const operationHint = compact ? [...new Set([
+    bodyDirty || !!draft ? '先保存或放弃当前草稿' : '',
+    !latest.record.task.archived && !canArchive ? '仅已结束的任务可归档' : '',
+    deleteBlockers[0]?.message ?? '',
+  ].filter(Boolean))].join('；') : '';
 
-  return <details className="taskmd-box taskmd-properties" aria-label="任务属性">
-    <summary>任务属性{dirty && <span className="taskmd-muted"> · 未保存</span>}</summary>
+  return <details className={`taskmd-box taskmd-properties${compact ? ' is-compact' : ''}`} aria-label="任务属性">
+    <summary>{compact ? '属性' : '任务属性'}{dirty && <span className="taskmd-muted"> · 未保存</span>}</summary>
     <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset className="taskmd-property-fields" disabled={busy}>
         <label className="taskmd-property-row"><span>标题</span><input aria-label="任务标题" required value={fields.title} onChange={event => edit({ title: event.target.value })} /></label>
@@ -208,9 +216,9 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
           {missingParent && <option value={fields.parent!}>原始无效关系：{fields.parent}</option>}
           {state.tasks.filter(item => item.id !== id).map(item => <option key={item.id} value={item.id}>{item.title}{item.archived ? '（已归档）' : ''}</option>)}
         </select></label>
-        {fields.parent && <div className="taskmd-property-action"><button type="button" onClick={() => onSelect(fields.parent!)}>查看父任务</button></div>}
-        <div className="taskmd-property-row" role="group" aria-label="直接依赖"><span>直接依赖</span><div>
-          {!dependencyIds.length && <p className="taskmd-muted">暂无直接依赖。</p>}
+        {fields.parent && <div className="taskmd-property-action"><button type="button" onClick={() => onSelect(fields.parent!)}>{compact ? '打开父任务' : '查看父任务'}</button></div>}
+        <div className="taskmd-property-row" role="group" aria-label="直接依赖"><span>{compact ? '依赖' : '直接依赖'}</span><div>
+          {!dependencyIds.length && <p className="taskmd-muted">{compact ? '无' : '暂无直接依赖。'}</p>}
           {dependencyIds.map(dependencyId => {
             const valid = candidateIds.has(dependencyId);
             return <div key={dependencyId}>
@@ -219,18 +227,18 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
                   ? [...fields.blocked_by, dependencyId]
                   : fields.blocked_by.filter(value => value !== dependencyId),
               })} />{label(dependencyId)}{!valid && <span className="taskmd-error">（现有关系已失效：缺失、自依赖或与当前父任务不同；请明确移除或调整父任务）</span>}</label>
-              <button type="button" onClick={() => onSelect(dependencyId)}>查看依赖任务</button>
+              {!compact && <button type="button" onClick={() => onSelect(dependencyId)}>查看依赖任务</button>}
             </div>;
           })}
           <select aria-label="添加依赖" value="" onChange={event => {
             if (event.target.value) edit({ blocked_by: [...fields.blocked_by, event.target.value] });
           }}>
-            <option value="">添加依赖…</option>
+            <option value="">{compact ? '添加依赖' : '添加依赖…'}</option>
             {candidates.filter(candidate => !fields.blocked_by.includes(candidate.id))
               .map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.title}</option>)}
           </select>
         </div></div>
-        <div className="taskmd-property-row" role="group" aria-label="状态"><span>状态</span><div>
+        {!compact && <div className="taskmd-property-row" role="group" aria-label="状态"><span>状态</span><div>
           <select aria-label="任务状态" value={action ?? (latest.record.task.archived ? 'archived' : fields.status)} onChange={event => {
             const value = event.target.value;
             if (value === 'archive' || value === 'restore' || value === 'delete') { setAction(value); setNotice(''); setError(''); }
@@ -249,11 +257,20 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
           {(bodyDirty || !!draft) && <p className="taskmd-muted">归档、取消归档或删除前，请先保存或放弃正文和属性草稿。</p>}
           {!latest.record.task.archived && !canArchive && <p className="taskmd-muted">归档前，本任务及全部子任务必须已完成或已取消。</p>}
           {!!deleteBlockers.length && <p className="taskmd-muted">暂不能删除：{deleteBlockers.map(item => item.message).join(' ')}</p>}
-          {action === 'delete' && <p className="taskmd-error">永久删除「{task.title}」及其任务正文？点击「确认永久删除」后无法撤销。实际 Asset 文件和 DSH 会话会保留，本机任务会话关联会解除。</p>}
-        </div></div>
-        <p className="taskmd-muted">属性单独保存，不影响正文草稿。</p>
+        </div></div>}
+        {compact && <div className="taskmd-property-row" role="group" aria-label="任务操作"><span>操作</span><div className="taskmd-property-actions" aria-describedby={operationHint ? operationHintIds : undefined}>
+          {latest.record.task.archived
+            ? <button type="button" disabled={busy || bodyDirty || !!draft} onClick={() => { setAction('restore'); setNotice(''); setError(''); }}>取消归档</button>
+            : <button type="button" disabled={busy || bodyDirty || !!draft || !canArchive}
+              onClick={() => { setAction('archive'); setNotice(''); setError(''); }}>归档</button>}
+          <button type="button" className="taskmd-danger" disabled={busy || bodyDirty || !!draft || !!deleteBlockers.length}
+            onClick={() => { setAction('delete'); setNotice(''); setError(''); }}>删除</button>
+        </div></div>}
+        {compact && operationHint && <p id={operationHintIds} className="taskmd-property-hint">{operationHint}</p>}
+        {!compact && <p className="taskmd-muted">属性单独保存，不影响正文草稿。</p>}
       </fieldset>
-      {draft && <p role="status" className="taskmd-muted">属性尚未保存；草稿保存在本会话，切换任务后回来仍可继续。</p>}
+      {action === 'delete' && <p className="taskmd-error">永久删除「{task.title}」及其任务正文？点击「确认永久删除」后无法撤销。实际 Asset 文件和 DSH 会话会保留，本机任务会话关联会解除。</p>}
+      {draft && !compact && <p role="status" className="taskmd-muted">属性尚未保存；草稿保存在本会话，切换任务后回来仍可继续。</p>}
       {storageError && <p role="alert" className="taskmd-error">浏览器无法保留属性草稿，请在离开前保存或手动记录。</p>}
       {error && <pre role="alert" className="taskmd-error">{error}</pre>}
       {notice && <p role="status">{notice}</p>}
@@ -264,14 +281,14 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
         <pre aria-label="待提交属性修改">{JSON.stringify(changes, null, 2)}</pre>
         <button type="button" disabled={busy} onClick={() => { void save(true); }}>已核对，使用最新版本保存属性</button>
       </section>}
-      <div className="taskmd-toolbar">
+      {(!compact || dirty) && <div className="taskmd-toolbar">
         <button className={action === 'delete' ? 'taskmd-danger' : undefined} disabled={busy || !dirty || !fields.title.trim() || stale || (!!action && actionBlocked)}>{submitLabel}</button>
         <button type="button" disabled={busy || !dirty} onClick={() => {
           if (!draft || confirmDiscard('放弃未保存的属性修改？正文草稿会保留。')) {
             persist(undefined); setAction(undefined); setConflict(false); setError(''); setNotice('已放弃属性修改。');
           }
         }}>{action ? '取消所选操作' : '放弃属性修改'}</button>
-      </div>
+      </div>}
     </form>
   </details>;
 }

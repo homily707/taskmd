@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { State, Task, TaskRecord, TaskSessionBinding } from '../types.js';
+import type { State, Task, TaskRecord, TaskSessionBinding, TaskStatus } from '../types.js';
 import type { SessionCapability, SessionStatus, SessionStatusSource, TaskGraphPort } from './port.js';
 import { executionBlockers } from '../core/graph.js';
 import { compareTasks, descendants, failure, progress, statusLabels, useTasks } from './shared.js';
@@ -13,6 +13,10 @@ import { TaskSessionLauncher } from './session-launcher.js';
 import { CopySessionId } from './copy-session-id.js';
 import { styles } from './styles.js';
 import { isString, useStored } from './view-state.js';
+
+const taskStatusLabels: Record<TaskStatus, string> = {
+  todo: '待办', in_progress: '进行中', done: '已完成', canceled: '已取消',
+};
 
 export interface TaskmdAppProps {
   port: TaskGraphPort;
@@ -301,16 +305,18 @@ export function TaskmdDetailPanel({ port, sessions, sessionId, taskId, onOpenTas
   return <div className="taskmd-app taskmd-detail-panel"><style>{styles}</style>
     {error && <p className="taskmd-error" role="alert">{error}</p>}
     {state ? <TaskDetail key={taskId} id={taskId} port={port} state={state} task={task} sessions={sessions} sessionId={sessionId}
-      agent={agent} onSelect={id => onOpenTask?.(id)} onChanged={refresh} onDirty={() => {}} /> : <p className="taskmd-muted">正在加载任务…</p>}
+      agent={agent} onSelect={id => onOpenTask?.(id)} onChanged={refresh} onDirty={() => {}} compact /> : <p className="taskmd-muted">正在加载任务…</p>}
   </div>;
 }
 
-function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelect, onChanged, onDirty, launchTask }: {
+function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelect, onChanged, onDirty, launchTask, compact = false }: {
   id: string; port: TaskGraphPort; state: State; task?: Task; sessions?: SessionCapability; sessionId?: string;
   agent?: TaskAgentView;
   onSelect(id: string): void; onChanged(): Promise<void>; onDirty(dirty: boolean): void;
   /** A DSH left-sidebar open signal: unfold this Task's launcher once per nonce. */
   launchTask?: number;
+  /** Right-sidebar presentation: status first, dense sections, fold the long body. */
+  compact?: boolean;
 }) {
   const [record, setRecord] = useState<TaskRecord>();
   const [error, setError] = useState('');
@@ -320,6 +326,7 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
   const [editorDirty, setEditorDirty] = useState(false);
   const [propertiesDirty, setPropertiesDirty] = useState(false);
   const active = useRef(true);
+  const statusLock = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => { onDirty(editorDirty || propertiesDirty); return () => onDirty(false); }, [editorDirty, propertiesDirty, onDirty]);
   useEffect(() => {
@@ -332,31 +339,36 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
     return () => controller.abort();
   }, [id, port, state.revision, reload]);
   const displayed = task || record?.task;
-  const blockers = displayed?.status === 'todo' ? executionBlockers(state.tasks, displayed.id) : [];
+  const blockers = displayed && (displayed.status === 'todo' || displayed.status === 'in_progress')
+    ? executionBlockers(state.tasks, displayed.id) : [];
   const count = displayed ? progress(state.tasks, displayed.id) : { total: 0, done: 0, canceled: 0, terminal: 0 };
+  const childrenComplete = count.terminal === count.total;
+  const canStart = !!record && !!displayed && displayed.status === 'todo' && !displayed.archived
+    && count.total === 0 && blockers.length === 0 && !busy;
+  const canComplete = !!record && !!displayed && (displayed.status === 'todo' || displayed.status === 'in_progress')
+    && !displayed.archived && childrenComplete && blockers.length === 0 && !busy;
+  const canReopen = !!record && !!displayed && (displayed.status === 'done' || displayed.status === 'canceled') && !displayed.archived && !busy;
   const finishable = !!displayed && count.total > 0 && count.terminal === count.total
     && (displayed.status === 'todo' || displayed.status === 'in_progress') && !displayed.archived && !!record && !busy;
-  const finish = async () => {
-    if (!record || !displayed || busy) return;
-    setBusy(true); setError('');
-    try {
-      await port.apply({ requestId: crypto.randomUUID(), baseRevision: state.revision,
-        operations: [{ op: 'patch', id, expectedVersion: record.version, changes: { status: 'done' } }] });
-      await onChanged();
-    } catch (error) { if (active.current) setError(failure(error)); }
-    finally { if (active.current) setBusy(false); }
+  const statusOptionDisabled = (value: TaskStatus): boolean => {
+    if (!record || !displayed || busy || value === displayed.status) return !record || busy;
+    if (value === 'done') return !childrenComplete || blockers.length > 0;
+    if (value === 'in_progress' && displayed.status === 'todo') return count.total > 0 || blockers.length > 0;
+    return false;
   };
-  // Soft hint action: only this Task moves to in_progress; the graph rules
-  // still validate the transition, nothing is inferred from the session.
-  const start = async () => {
-    if (!record || !displayed || busy) return;
+  // One writer for every visible status transition; graph rules still validate it.
+  const changeStatus = async (next: TaskStatus) => {
+    if (!record || !displayed || busy || statusLock.current || next === displayed.status) return;
+    if (next === 'canceled' && typeof window !== 'undefined'
+      && !window.confirm('取消任务会停止执行，并取消未完成的后代。继续？')) return;
+    statusLock.current = true;
     setBusy(true); setError('');
     try {
       await port.apply({ requestId: crypto.randomUUID(), baseRevision: state.revision,
-        operations: [{ op: 'patch', id, expectedVersion: record.version, changes: { status: 'in_progress' } }] });
+        operations: [{ op: 'patch', id, expectedVersion: record.version, changes: { status: next } }] });
       await onChanged();
     } catch (error) { if (active.current) setError(failure(error)); }
-    finally { if (active.current) setBusy(false); }
+    finally { statusLock.current = false; if (active.current) setBusy(false); }
   };
   if (!task) return <p className="taskmd-muted">任务不存在或已删除。</p>;
   const crumb: Task[] = [];
@@ -365,32 +377,67 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
     const parent: string | null = cursor.parent;
     cursor = parent ? state.tasks.find(item => item.id === parent) : undefined;
   }
-  return <div className="taskmd-task-detail">
+  return <div className={`taskmd-task-detail${compact ? ' is-compact' : ''}`}>
     {!!crumb.length && <div className="taskmd-detail-crumb">
       {crumb.map(item => <span key={item.id}><button onClick={() => onSelect(item.id)}>{item.title}</button> › </span>)}
     </div>}
-    <h3 className="taskmd-detail-title">{displayed?.title || id}</h3>
-    <div className="taskmd-detail-meta taskmd-muted"><span title={id}>{id}</span>{displayed?.repo && <span>{displayed.repo}</span>}</div>
+    {compact ? <header className="taskmd-panel-head">
+      <h3 className="taskmd-detail-title" title={id}>{displayed?.title || id}</h3>
+      <div className="taskmd-panel-actions">
+        {displayed && !displayed.archived && <span className="taskmd-status-wrap">
+          <select aria-label="任务状态" className={`taskmd-status-select is-${displayed.status}`}
+            value={displayed.status} disabled={!record || busy}
+            onChange={event => {
+              const next = event.target.value as TaskStatus;
+              if (statusOptionDisabled(next)) { event.currentTarget.value = displayed.status; return; }
+              void changeStatus(next);
+            }}>
+            {(['todo', 'in_progress', 'done', 'canceled'] as TaskStatus[]).map(value =>
+              <option key={value} value={value} disabled={statusOptionDisabled(value)}>{taskStatusLabels[value]}</option>)}
+          </select>
+        </span>}
+        {displayed?.archived && <span className="taskmd-badge">已归档 · {taskStatusLabels[displayed.status]}</span>}
+        {canStart && <button type="button" className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>开始任务</button>}
+        {!canStart && canComplete && <button type="button" className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('done'); }}>{count.total > 0 ? '确认完成' : '完成任务'}</button>}
+        {!canStart && !canComplete && canReopen && <button type="button" className="taskmd-primary-action is-secondary" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>重新打开</button>}
+      </div>
+      <div className="taskmd-panel-meta">
+        {displayed?.repo && <span>{displayed.repo}</span>}
+        {!!count.total && <span className="taskmd-panel-progress" title={`子任务 ${count.done}/${count.total} 完成`}>
+          <i style={{ '--p': `${Math.round(count.done / count.total * 100)}%` } as CSSProperties} />{count.done}/{count.total}
+        </span>}
+      </div>
+      {!!blockers.length && <div className="taskmd-panel-blockers" role="status">
+        <span>等待</span>
+        {blockers.map((blocker, index) => blocker.dependencyId
+          ? <button key={`${blocker.taskId}:${blocker.dependencyId}:${index}`} type="button"
+            onClick={() => onSelect(blocker.dependencyId!)}>{state.tasks.find(item => item.id === blocker.dependencyId)?.title || blocker.dependencyId}</button>
+          : <span key={`${blocker.taskId}:${index}`}>{blocker.message}</span>)}
+      </div>}
+    </header> : <>
+      <h3 className="taskmd-detail-title">{displayed?.title || id}</h3>
+      <div className="taskmd-detail-meta taskmd-muted"><span title={id}>{id}</span>{displayed?.repo && <span>{displayed.repo}</span>}</div>
+    </>}
     {error && <p className="taskmd-error" role="alert">{error}</p>}
     {readError && <p className="taskmd-error" role="alert">{readError} <button disabled={busy} onClick={() => setReload(value => value + 1)}>重试读取</button></p>}
     {displayed && <>
-      <div className="taskmd-detail-summary">
+      {!compact && <div className="taskmd-detail-summary">
         <span className={`taskmd-badge taskmd-status-${displayed.status}`}>{statusLabels[displayed.status]}</span>
         {state.ready.includes(displayed.id) && <span className="taskmd-badge taskmd-badge-ready">可开始</span>}
         {displayed.archived && <span className="taskmd-badge">已归档</span>}
         {!!count.total && <span className="taskmd-muted">子任务 {count.done}/{count.total} 完成{count.canceled > 0 && ` · ${count.canceled} 取消`}</span>}
-        {finishable && <button disabled={busy} aria-label="明确完成此父任务" title="全部子任务已终态；确认完成父任务后解锁后续任务" onClick={() => { void finish(); }}>确认完成</button>}
-      </div>
-      {!!blockers.length && <section className="taskmd-box taskmd-blockers" aria-label="阻塞原因">
+        {finishable && <button disabled={busy} aria-label="明确完成此父任务" title="全部子任务已终态；确认完成父任务后解锁后续任务" onClick={() => { void changeStatus('done'); }}>{count.total > 0 ? '确认完成' : '完成任务'}</button>}
+      </div>}
+      {!compact && !!blockers.length && <section className="taskmd-box taskmd-blockers" aria-label="阻塞原因">
         <h4>等待中</h4><ul>{blockers.map((blocker, index) => <li key={index}>
           {blocker.dependencyId && <button onClick={() => onSelect(blocker.dependencyId!)}>{state.tasks.find(item => item.id === blocker.dependencyId)?.title || blocker.dependencyId}</button>}
           <span> {blocker.message}</span></li>)}</ul>
         <p className="taskmd-muted">以上为本任务或其祖先的直接依赖，只读说明，不可在此编辑继承依赖。</p>
       </section>}
       {sessions && <TaskExecution key={id} task={displayed} capability={sessions} port={port} currentSessionId={sessionId}
-        agent={agent} startBusy={busy} onStart={() => { void start(); }} launchTask={launchTask} />}
-      {record && <TaskProperties task={displayed} record={record} port={port} state={state} onChanged={onChanged} onSelect={onSelect} onDirty={setPropertiesDirty} bodyDirty={editorDirty} />}
-      {record && <TaskEditor record={record} port={port} state={state} onChanged={onChanged} onDirty={setEditorDirty} />}
+        agent={agent} startBusy={busy} onStart={() => { void changeStatus('in_progress'); }} launchTask={launchTask} compact={compact} />}
+      {record && <TaskProperties task={displayed} record={record} port={port} state={state} onChanged={onChanged} onSelect={onSelect} onDirty={setPropertiesDirty} bodyDirty={editorDirty} compact={compact} />}
+      {record && <TaskEditor record={record} port={port} state={state} onChanged={onChanged} onDirty={setEditorDirty} compact={compact} />}
       {record && <TaskAssets record={record} state={state} port={port} onChanged={onChanged} />}
     </>}
   </div>;
@@ -419,9 +466,9 @@ const badgeGlyphs: Record<AgentLevel, string> = {
 };
 
 /** Session rows under one Task, with live state, soft hints and the launcher folded in. */
-function TaskExecution({ task, capability, port, currentSessionId, agent, startBusy, onStart, launchTask }: {
+function TaskExecution({ task, capability, port, currentSessionId, agent, startBusy, onStart, launchTask, compact = false }: {
   task: Task; capability: SessionCapability; port: TaskGraphPort; currentSessionId?: string;
-  agent?: TaskAgentView; startBusy: boolean; onStart(): void; launchTask?: number;
+  agent?: TaskAgentView; startBusy: boolean; onStart(): void; launchTask?: number; compact?: boolean;
 }) {
   const taskId = task.id;
   const [bindings, setBindings] = useState<TaskSessionBinding[]>();
@@ -459,19 +506,19 @@ function TaskExecution({ task, capability, port, currentSessionId, agent, startB
     finally { setBusy(false); }
   };
   const freshSession = agent?.statuses.find(status => status.fresh);
-  return <section className="taskmd-box taskmd-execution" aria-label="执行">
+  return <section className={`taskmd-box taskmd-execution${compact ? ' is-compact' : ''}`} aria-label="执行">
     <div className="taskmd-execution-head">
-      <h4>执行{(rows?.length ?? 0) > 0 ? ` · ${rows!.length}` : ''}</h4>
+      <h4>{compact ? '会话' : '执行'}{(rows?.length ?? 0) > 0 ? ` · ${rows!.length}` : ''}</h4>
       <button className="taskmd-new-session" aria-expanded={creating} onClick={() => setCreating(value => !value)}>＋ 新会话</button>
     </div>
     {creating && <TaskSessionLauncher task={task} capability={capability} defaultOpen openNonce={launchTask} />}
     {error && <p role="alert" className="taskmd-error">{error}</p>}
     {listError && <p role="alert" className="taskmd-error">{listError} <button onClick={() => setReload(value => value + 1)}>重试</button></p>}
-    {task.status === 'todo' && (agent?.running ?? 0) > 0 && <p className="taskmd-agent-hint" role="status">
+    {!compact && task.status === 'todo' && (agent?.running ?? 0) > 0 && <p className="taskmd-agent-hint" role="status">
       关联会话已在执行，但任务仍是待办。<button disabled={startBusy} onClick={onStart}>开始任务</button>
     </p>}
     {freshSession && <p className="taskmd-agent-hint is-fresh" role="status">
-      有会话已出结果，还没查看。<button disabled={busy} onClick={() => { void run(() => capability.open(freshSession.sessionId)); }}>查看会话</button>
+      {compact ? '有新结果' : '有会话已出结果，还没查看。'}<button disabled={busy} onClick={() => { void run(() => capability.open(freshSession.sessionId)); }}>{compact ? '查看' : '查看会话'}</button>
     </p>}
     {!!rows?.length && <ul className="taskmd-sessions">{rows.map(({ binding, status }) => {
       const level = status ? levelOf(status) : undefined;
@@ -481,22 +528,29 @@ function TaskExecution({ task, capability, port, currentSessionId, agent, startB
         status?.tokens !== undefined ? `${formatTokens(status.tokens)} tokens` : '',
         binding.lastOpenedAt ? `最近打开 ${binding.lastOpenedAt}` : `创建于 ${binding.createdAt}`,
       ].filter(Boolean).join(' · ');
-      return <li key={binding.sessionId} className="taskmd-session-row">
+      return <li key={binding.sessionId} className={`taskmd-session-row${compact ? ' is-compact' : ''}`}>
         {level && <span className={`taskmd-agent-badge is-${level}`} role="img" aria-label={levelLabels[level]} title={levelLabels[level]}>{badgeGlyphs[level]}</span>}
         <button className="taskmd-session-open" disabled={busy} title={binding.sessionId}
           onClick={() => { void run(() => capability.open(binding.sessionId)); }}>
           {status?.title || binding.sessionId}
           {status && <small>{levelLabels[levelOf(status)]}{status.updatedAt !== undefined && !status.running ? ` · ${relativeActivity(status, Date.now())}前活跃` : ''}</small>}
         </button>
-        <span className="taskmd-session-meta taskmd-muted">{meta}</span>
-        <CopySessionId sessionId={binding.sessionId} />
-        <button disabled={busy} onClick={() => { void run(() => capability.unbind(taskId, binding.sessionId)); }}>解除关联</button>
+        {compact
+          ? <details className="taskmd-session-menu taskmd-row-menu"><summary aria-label="会话操作">⋯</summary><div>
+            <CopySessionId sessionId={binding.sessionId} />
+            <button disabled={busy} onClick={() => { void run(() => capability.unbind(taskId, binding.sessionId)); }}>解除关联</button>
+          </div></details>
+          : <>
+            <span className="taskmd-session-meta taskmd-muted">{meta}</span>
+            <CopySessionId sessionId={binding.sessionId} />
+            <button disabled={busy} onClick={() => { void run(() => capability.unbind(taskId, binding.sessionId)); }}>解除关联</button>
+          </>}
       </li>;
     })}</ul>}
-    {rows !== undefined && rows.length === 0 && <p className="taskmd-muted">此任务还没有关联会话。</p>}
-    {rows === undefined && !listError && <p className="taskmd-muted">正在读取关联会话…</p>}
-    {currentSessionId && !(bindings || []).some(binding => binding.sessionId === currentSessionId) && <button disabled={busy} onClick={() => { void run(() => capability.bind(taskId, currentSessionId)); }}>关联当前会话</button>}
-    <details className="taskmd-bind-existing"><summary>关联已有会话</summary>
+    {rows !== undefined && rows.length === 0 && <p className="taskmd-muted">{compact ? '暂无会话' : '此任务还没有关联会话。'}</p>}
+    {rows === undefined && !listError && <p className="taskmd-muted">{compact ? '读取中…' : '正在读取关联会话…'}</p>}
+    {currentSessionId && !(bindings || []).some(binding => binding.sessionId === currentSessionId) && <button className={compact ? 'taskmd-quiet' : undefined} disabled={busy} onClick={() => { void run(() => capability.bind(taskId, currentSessionId)); }}>关联当前会话</button>}
+    <details className="taskmd-bind-existing"><summary>{compact ? '关联已有' : '关联已有会话'}</summary>
       <form onSubmit={event => { event.preventDefault(); if (sessionId.trim()) void run(() => capability.bind(taskId, sessionId.trim())); }}>
         <label>会话 ID<input value={sessionId} onChange={event => setSessionId(event.target.value)} placeholder="会话 ID" /></label><button disabled={busy || !sessionId.trim()}>关联</button>
       </form>
@@ -536,7 +590,7 @@ export function TaskmdSidebar({ port, sessions, sessionId, onOpenTask }: {
     finally { setBusy(false); }
   };
   const linked = new Set(bindings.map(binding => binding.taskId));
-  return <section className="taskmd-app taskmd-session-sidebar"><style>{styles}</style><h3>本会话任务</h3>
+  return <section className="taskmd-app taskmd-session-sidebar"><style>{styles}</style><h3>本会话任务 <span className="taskmd-muted">{bindings.length}</span></h3>
     {(error || actionError) && <p className="taskmd-error" role="alert">{error || actionError}</p>}
     {listError && <p className="taskmd-error" role="alert">{listError} <button onClick={() => setReload(value => value + 1)}>重试</button></p>}
     <ul className="taskmd-tree">{bindings.map(binding => {

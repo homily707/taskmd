@@ -687,3 +687,35 @@ test('a body-only patch through the real Store keeps frontmatter comments and un
     } finally { store.close(); }
   });
 });
+
+test('compact editor starts as a preview and expands on demand', async t => {
+  const task = makeTask();
+  const { port } = portWith({
+    record: () => makeRecord(task), state: () => makeState([task]),
+    apply: async () => applied(task.id, 'v2', 'r2'),
+  });
+  const view = await mount(t, createElement(TaskEditor, {
+    record: makeRecord(task), port, state: makeState([task]), onChanged: async () => {}, onDirty: () => {}, compact: true,
+  }));
+
+  assert.equal(view.root.findAllByType('textarea').length, 0, 'the compact panel paints a preview first');
+  assert.ok(button(view, '编辑'));
+  await click(view, '编辑');
+  assert.equal(textarea(view).props.value, '# 原正文\n');
+  assert.ok(button(view, '收起'));
+});
+
+test('compact properties leave status to the header and keep destructive actions', async t => {
+  const task = makeTask({ status: 'done' });
+  const { port } = portWith({
+    record: () => makeRecord(task), state: () => makeState([task]),
+    apply: async () => applied(task.id, 'v2', 'r2'),
+  });
+  const view = await mount(t, createElement(TaskProperties, {
+    task, record: makeRecord(task), port, state: makeState([task]), onChanged: async () => {}, onSelect: () => {}, compact: true,
+  }));
+
+  assert.equal(view.root.findAll(node => node.props['aria-label'] === '任务状态').length, 0, 'no duplicate status control');
+  assert.ok(hasButton(view, '归档'));
+  assert.ok(hasButton(view, '删除'));
+});

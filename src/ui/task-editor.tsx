@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import type { State, TaskRecord } from '../types.js';
+import { MarkdownPreview } from './markdown-preview.js';
 import type { TaskGraphPort } from './port.js';
 import {
   bodyDiff, confirmDiscard, copyText, isVersionConflict, latestTask, loadDraft, storeDraft, taskFailure, taskPatch,
@@ -24,6 +25,8 @@ export interface TaskEditorProps {
   state: State;
   onChanged(): Promise<void>;
   onDirty(dirty: boolean): void;
+  /** Right-sidebar mode: show a read-only preview first and edit on demand. */
+  compact?: boolean;
 }
 
 /** Keyed by Task: a pending read can never replace another task's draft. */
@@ -31,7 +34,7 @@ export function TaskEditor(props: TaskEditorProps) {
   return <BodyEditor key={props.record.task.id} {...props} />;
 }
 
-function BodyEditor({ record, port, state, onChanged, onDirty }: TaskEditorProps) {
+function BodyEditor({ record, port, state, onChanged, onDirty, compact = false }: TaskEditorProps) {
   const id = record.task.id;
   const [draft, setDraft] = useState(() => readDraft(id));
   const [latest, setLatest] = useState({ record, revision: state.revision });
@@ -41,6 +44,7 @@ function BodyEditor({ record, port, state, onChanged, onDirty }: TaskEditorProps
   const [notice, setNotice] = useState('');
   const [storageError, setStorageError] = useState(false);
   const [source, setSource] = useState(false);
+  const [editing, setEditing] = useState(!compact);
   const [Surface, setSurface] = useState<SurfaceComponent>();
   // Bumped only when the mounted CodeMirror document must be re-seeded (load,
   // discard, save, external change). The Atomic surface reads `markdownSource`
@@ -59,12 +63,13 @@ function BodyEditor({ record, port, state, onChanged, onDirty }: TaskEditorProps
     // text. Environments that cannot load it (tests, non-bundled hosts) keep
     // working through the Markdown source textarea.
     if (typeof document === 'undefined') return;
+    if (compact && !editing) return;
     let canceled = false;
     void import('./task-markdown-surface.js')
       .then(module => { if (!canceled) setSurface(() => module.default); })
       .catch(() => { if (!canceled) setNotice('Atomic 编辑器加载失败，已改用 Markdown 源码编辑。'); });
     return () => { canceled = true; };
-  }, []);
+  }, [compact, editing]);
   useEffect(() => { setLatest({ record, revision: state.revision }); }, [record, state.revision]);
   useEffect(() => { onDirty(dirty); return () => onDirty(false); }, [dirty, onDirty]);
   useEffect(() => {
@@ -176,14 +181,30 @@ function BodyEditor({ record, port, state, onChanged, onDirty }: TaskEditorProps
       .catch(() => setError('复制失败，请切换源码模式后手动复制正文。'));
   };
 
-  return <section className="taskmd-box taskmd-editor" aria-label="正文编辑">
-    <div className="taskmd-toolbar"><h4>Markdown 正文</h4>
-      <button type="button" disabled={busy} aria-pressed={source} onClick={() => setSource(!source)}>源码模式</button></div>
-    <p className="taskmd-muted">仅编辑正文；标题、状态与关系在属性面板保存。保存只改正文，frontmatter 的注释与未知字段原样保留。</p>
-    {Surface && !source
-      ? <Surface documentId={`${id}:${generation}`} body={body} onChange={edit} />
-      : <textarea aria-label="任务正文 Markdown" spellCheck={false} value={body} onChange={event => edit(event.target.value)} />}
-    {dirty && <p role="status" className="taskmd-muted">正文尚未保存；草稿保存在本会话，切换任务后回来仍可继续。</p>}
+  const discard = () => {
+    if (confirmDiscard('放弃本地正文草稿？')) {
+      persist(undefined); setConflict(false); setError(''); setNotice('已放弃正文草稿。');
+    }
+  };
+  return <section className={`taskmd-box taskmd-editor${compact ? ' is-compact' : ''}`} aria-label="正文编辑">
+    {compact
+      ? <div className="taskmd-editor-head">
+        <h4>正文</h4>
+        {dirty && <span className="taskmd-editor-dirty" role="status">未保存</span>}
+        {editing && <button type="button" className="taskmd-quiet" disabled={busy} aria-pressed={source} onClick={() => setSource(!source)}>源码</button>}
+        <button type="button" className="taskmd-quiet" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? '收起' : '编辑'}</button>
+      </div>
+      : <div className="taskmd-toolbar"><h4>Markdown 正文</h4>
+        <button type="button" disabled={busy} aria-pressed={source} onClick={() => setSource(!source)}>源码模式</button></div>}
+    {!compact && <p className="taskmd-muted">仅编辑正文；标题、状态与关系在属性面板保存。保存只改正文，frontmatter 的注释与未知字段原样保留。</p>}
+    {compact && !editing
+      ? <div className="taskmd-body-preview" title="展开编辑查看完整正文">
+        <MarkdownPreview text={body} />
+      </div>
+      : Surface && !source
+        ? <Surface documentId={`${id}:${generation}`} body={body} onChange={edit} />
+        : <textarea aria-label="任务正文 Markdown" spellCheck={false} value={body} onChange={event => edit(event.target.value)} />}
+    {dirty && !compact && <p role="status" className="taskmd-muted">正文尚未保存；草稿保存在本会话，切换任务后回来仍可继续。</p>}
     {storageError && <p role="alert" className="taskmd-error">浏览器草稿存储不可用，离开前请复制正文。</p>}
     {error && <pre role="alert" className="taskmd-error">{error}</pre>}
     {notice && <p role="status">{notice}</p>}
@@ -199,13 +220,11 @@ function BodyEditor({ record, port, state, onChanged, onDirty }: TaskEditorProps
         <button type="button" disabled={busy} onClick={() => { void save(true); }}>已人工合并，使用最新版本重试</button>
       </div>
     </section>}
-    <div className="taskmd-toolbar">
+    {(!compact || editing || dirty) && <div className="taskmd-toolbar">
       <button type="button" disabled={busy || !dirty || needsMerge} onClick={() => { void save(); }}>保存正文</button>
-      <button type="button" disabled={busy} onClick={() => { void refresh(true); }}>加载最新正文</button>
-      <button type="button" disabled={busy} onClick={copy}>复制正文草稿</button>
-      <button type="button" disabled={busy || !dirty} onClick={() => {
-        if (confirmDiscard('放弃本地正文草稿？')) { persist(undefined); setConflict(false); setError(''); setNotice('已放弃正文草稿。'); }
-      }}>放弃草稿</button>
-    </div>
+      {!compact && <button type="button" disabled={busy} onClick={() => { void refresh(true); }}>加载最新正文</button>}
+      <button type="button" disabled={busy} onClick={copy}>{compact ? '复制' : '复制正文草稿'}</button>
+      <button type="button" disabled={busy || !dirty} onClick={discard}>{compact ? '放弃' : '放弃草稿'}</button>
+    </div>}
   </section>;
 }
