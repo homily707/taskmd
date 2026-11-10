@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 register('./css-loader.mjs', import.meta.url);
-const { TaskmdDetailPanel } = await import('../src/ui/taskmd-app.js');
+const { TaskmdApp, TaskmdDetailPanel } = await import('../src/ui/taskmd-app.js');
 import type { TaskGraphPort } from '../src/ui/port.js';
 import type { ApplyResult, Plan, State, Task, TaskRecord } from '../src/types.js';
 
@@ -31,11 +31,14 @@ function portWith(initial: Task) {
     apply: async (plan: Plan): Promise<ApplyResult> => {
       plans.push(plan);
       if (failNext) { const error = failNext; failNext = undefined; throw error; }
-      const change = plan.operations[0];
-      if (change?.op === 'patch') {
-        current = { task: { ...current.task, ...change.changes } as Task, version: `v${++version}` };
-        revision = `r${++revisionNumber}`;
+      let archived: boolean | undefined;
+      for (const change of plan.operations) {
+        if (change.op === 'patch') current = { task: { ...current.task, ...change.changes } as Task, version: current.version };
+        else if (change.op === 'archive') archived = true;
+        else if (change.op === 'restore') archived = false;
       }
+      current = { task: { ...current.task, ...(archived === undefined ? {} : { archived }) }, version: `v${++version}` };
+      revision = `r${++revisionNumber}`;
       return { schemaVersion: 1, requestId: plan.requestId, revision, ids: {}, versions: { [current.task.id]: current.version } };
     },
     readAsset: async () => { throw new Error('unused'); },
@@ -146,6 +149,95 @@ test('a double click on the status action sends one mutation', async t => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
   assert.equal(plans.length, 1);
+});
+
+test('compact header archives a terminal task in one click', async t => {
+  const target = task({ status: 'done' });
+  const { port, plans } = portWith(target);
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
+  assert.ok(hasButton(view, '归档'), 'a finished task exposes archive in the header');
+  await click(view, '归档');
+  assert.deepEqual(plans[0]?.operations, [
+    { op: 'patch', id: 'task-a', changes: {}, expectedVersion: 'v1' },
+    { op: 'archive', id: 'task-a' },
+  ]);
+  assert.equal(hasButton(view, '确认归档'), false, 'archive has no second confirmation step');
+  assert.ok(hasButton(view, '取消归档'), 'the archived task exposes restore');
+  assert.match(view.root.findAll(node => node.props.role === 'status').map(text).join('\n'), /已归档/);
+});
+
+test('a double click on archive sends one mutation', async t => {
+  const target = task({ status: 'done' });
+  const { port, plans } = portWith(target);
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
+  const action = view.root.findAllByType('button').find(node => text(node) === '归档');
+  assert.ok(action);
+  await act(async () => {
+    action.props.onClick();
+    action.props.onClick();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+  assert.equal(plans.length, 1);
+});
+
+test('compact header restores an archived task in one click', async t => {
+  const target = task({ status: 'done', archived: true });
+  const { port, plans } = portWith(target);
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
+  await click(view, '取消归档');
+  assert.deepEqual(plans[0]?.operations, [
+    { op: 'patch', id: 'task-a', changes: {}, expectedVersion: 'v1' },
+    { op: 'restore', id: 'task-a' },
+  ]);
+  assert.ok(hasButton(view, '归档'), 'the restored task exposes archive again');
+});
+
+test('an unsaved body draft disables archive', async t => {
+  const target = task({ status: 'done' });
+  const { port } = portWith(target);
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
+  const editor = view.root.findByType('textarea');
+  await act(async () => { editor.props.onChange({ target: { value: '# 本地草稿\n' } }); });
+  const archive = view.root.findAllByType('button').find(node => text(node) === '归档');
+  assert.ok(archive);
+  assert.equal(archive.props.disabled, true);
+});
+
+test('an unsaved property draft disables archive', async t => {
+  const target = task({ status: 'done' });
+  const { port } = portWith(target);
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
+  await act(async () => { field(view, '任务标题').props.onChange({ target: { value: '任务 A2' } }); });
+  const archive = view.root.findAllByType('button').find(node => text(node) === '归档');
+  assert.ok(archive);
+  assert.equal(archive.props.disabled, true);
+});
+
+test('a failed archive keeps the task active and reports the error', async t => {
+  const target = task({ status: 'done' });
+  const { port, plans, failNext } = portWith(target);
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
+  failNext(Object.assign(new Error('archive blocked'), { code: 'store_error' }));
+  await click(view, '归档');
+  assert.equal(plans.length, 1);
+  assert.ok(hasButton(view, '归档'));
+  assert.equal(hasButton(view, '取消归档'), false);
+  const alert = view.root.findAll(node => node.props.role === 'alert').map(text).join('\n');
+  assert.match(alert, /archive blocked/);
+});
+
+test('wide detail exposes the primary status actions and one-click archive', async t => {
+  const target = task({ status: 'done' });
+  const { port, plans } = portWith(target);
+  const view = await mount(t, createElement(TaskmdApp, { port, initialTaskId: target.id }));
+  assert.ok(hasButton(view, '重新打开'), 'a terminal task can reopen from the detail summary');
+  assert.ok(hasButton(view, '归档'));
+  await click(view, '归档');
+  assert.deepEqual(plans[0]?.operations, [
+    { op: 'patch', id: 'task-a', changes: {}, expectedVersion: 'v1' },
+    { op: 'archive', id: 'task-a' },
+  ]);
+  assert.ok(hasButton(view, '取消归档'));
 });
 
 test('the status select and primary button share one pending guard', async t => {

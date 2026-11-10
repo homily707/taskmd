@@ -496,7 +496,7 @@ test('status offers the four states and labels explicit completion and reopening
     task: open, record: makeRecord(open), port, state: makeState(tasks), onChanged: async () => {}, onSelect: () => {},
   }));
   assert.deepEqual(field(view, '任务状态').findAllByType('option').map(option => option.props.value),
-    ['todo', 'in_progress', 'done', 'canceled', 'archive', 'delete']);
+    ['todo', 'in_progress', 'done', 'canceled', 'delete']);
 
   await act(async () => { field(view, '任务状态').props.onChange({ target: { value: 'done' } }); });
   assert.ok(hasButton(view, '明确完成并保存属性'));
@@ -707,7 +707,7 @@ test('compact editor starts expanded and can collapse to a preview', async t => 
   assert.equal(textarea(view).props.value, '# 原正文\n');
 });
 
-test('compact properties leave status to the header and keep destructive actions', async t => {
+test('compact properties leave status and archive to the header and keep delete', async t => {
   const task = makeTask({ status: 'done' });
   const { port } = portWith({
     record: () => makeRecord(task), state: () => makeState([task]),
@@ -718,6 +718,6 @@ test('compact properties leave status to the header and keep destructive actions
   }));
 
   assert.equal(view.root.findAll(node => node.props['aria-label'] === '任务状态').length, 0, 'no duplicate status control');
-  assert.ok(hasButton(view, '归档'));
+  assert.equal(hasButton(view, '归档'), false, 'archive is a one-click header action');
   assert.ok(hasButton(view, '删除'));
 });

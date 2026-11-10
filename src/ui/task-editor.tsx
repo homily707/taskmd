@@ -195,8 +195,8 @@ function BodyEditor({ record, port, state, onChanged, onDirty, compact = false }
         {editing && <button type="button" className="taskmd-quiet" disabled={busy} aria-pressed={source} onClick={() => setSource(!source)}>源码</button>}
         <button type="button" className="taskmd-quiet" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? '收起' : '编辑'}</button>
       </div>
-      : <div className="taskmd-toolbar"><h4>Markdown 正文</h4>
-        <button type="button" disabled={busy} aria-pressed={source} onClick={() => setSource(!source)}>源码模式</button></div>}
+      : <div className="taskmd-editor-head"><h4>Markdown 正文</h4>
+        <button type="button" className="taskmd-quiet" disabled={busy} aria-pressed={source} onClick={() => setSource(!source)}>源码模式</button></div>}
     {!compact && <p className="taskmd-muted">仅编辑正文；标题、状态与关系在属性面板保存。保存只改正文，frontmatter 的注释与未知字段原样保留。</p>}
     {compact && !editing
       ? <div className="taskmd-body-preview" title="展开编辑查看完整正文">

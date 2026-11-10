@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { State, Task, TaskChanges, TaskRecord, TaskStatus } from '../types.js';
 import type { TaskGraphPort } from './port.js';
-import { deletionBlockers, descendants } from '../core/graph.js';
+import { deletionBlockers } from '../core/graph.js';
 import {
   confirmDiscard, isVersionConflict, latestTask, loadDraft, storeDraft, taskFailure, taskPatch,
 } from './task-editing.js';
@@ -62,7 +62,7 @@ export function TaskProperties(props: TaskPropertiesProps) {
 function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDirty, bodyDirty = false, compact = false }: TaskPropertiesProps) {
   const id = task.id;
   const [draft, setDraft] = useState(() => readDraft(id));
-  const [action, setAction] = useState<'archive' | 'restore' | 'delete'>();
+  const [action, setAction] = useState<'delete'>();
   const [latest, setLatest] = useState({ record, revision: state.revision });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -77,10 +77,8 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
   const active = useRef(true);
   const dirty = draft !== undefined || action !== undefined;
   const deleteBlockers = deletionBlockers(state.tasks, latest.record.task);
-  const family = new Set([id, ...descendants(state.tasks, id)]);
-  const canArchive = state.tasks.filter(item => family.has(item.id)).every(item => terminal.includes(item.status));
   const actionBlocked = bodyDirty || draft !== undefined
-    || (action === 'delete' && !!deleteBlockers.length) || (action === 'archive' && !canArchive);
+    || (action === 'delete' && !!deleteBlockers.length);
 
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => { setLatest({ record, revision: state.revision }); }, [record, state.revision]);
@@ -140,13 +138,11 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
       locked.current = true; setBusy(true); setError(''); setNotice('');
       try {
         await port.apply({ requestId: crypto.randomUUID(), baseRevision: latest.revision,
-          operations: action === 'delete'
-            ? [{ op: 'delete', id, expectedVersion: latest.record.version }]
-            : [{ op: 'patch', id, changes: {}, expectedVersion: latest.record.version }, { op: action, id }],
+          operations: [{ op: 'delete', id, expectedVersion: latest.record.version }],
         });
         if (!active.current) return;
         setAction(undefined);
-        setNotice(action === 'delete' ? '任务已删除。' : action === 'archive' ? '任务已归档。' : '已取消归档，执行状态保持不变。');
+        setNotice('任务已删除。');
         await onChanged();
       } catch (failure) { if (active.current) setError(taskFailure(failure)); }
       finally { locked.current = false; if (active.current) setBusy(false); }
@@ -197,16 +193,15 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
   const reopening = fields.status !== latest.record.task.status
     && terminal.includes(latest.record.task.status) && !terminal.includes(fields.status);
   const finishing = fields.status !== latest.record.task.status && fields.status === 'done';
-  const submitLabel = action === 'delete' ? '确认永久删除' : action === 'archive' ? '确认归档' : action === 'restore' ? '确认取消归档' : finishing ? '明确完成并保存属性' : reopening ? '明确重新打开并保存属性' : '保存属性';
+  const submitLabel = action === 'delete' ? '确认永久删除' : finishing ? '明确完成并保存属性' : reopening ? '明确重新打开并保存属性' : '保存属性';
   const operationHintIds = `taskmd-operation-hint-${id}`;
   const operationHint = compact ? [...new Set([
     bodyDirty || !!draft ? '先保存或放弃当前草稿' : '',
-    !latest.record.task.archived && !canArchive ? '仅已结束的任务可归档' : '',
     deleteBlockers[0]?.message ?? '',
   ].filter(Boolean))].join('；') : '';
 
   return <details className={`taskmd-box taskmd-properties${compact ? ' is-compact' : ''}`} aria-label="任务属性">
-    <summary>{compact ? '属性' : '任务属性'}{dirty && <span className="taskmd-muted"> · 未保存</span>}</summary>
+    <summary>{compact ? '属性' : '任务属性'}{dirty && <span className="taskmd-muted"> · {action ? '待确认' : '未保存'}</span>}</summary>
     <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset className="taskmd-property-fields" disabled={busy}>
         <label className="taskmd-property-row"><span>标题</span><input aria-label="任务标题" required value={fields.title} onChange={event => edit({ title: event.target.value })} /></label>
@@ -241,29 +236,22 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
         {!compact && <div className="taskmd-property-row" role="group" aria-label="状态"><span>状态</span><div>
           <select aria-label="任务状态" value={action ?? (latest.record.task.archived ? 'archived' : fields.status)} onChange={event => {
             const value = event.target.value;
-            if (value === 'archive' || value === 'restore' || value === 'delete') { setAction(value); setNotice(''); setError(''); }
+            if (value === 'delete') { setAction('delete'); setNotice(''); setError(''); }
             else edit({ status: value as TaskStatus });
           }}>
             {latest.record.task.archived && <option value="archived" disabled>已归档 · {statuses[latest.record.task.status]}</option>}
             {Object.entries(statuses).map(([value, text]) => <option key={value} value={value} disabled={latest.record.task.archived}>{text}（{value}）</option>)}
             <optgroup label="任务操作">
-              {latest.record.task.archived
-                ? <option value="restore" disabled={bodyDirty || !!draft}>取消归档</option>
-                : <option value="archive" disabled={bodyDirty || !!draft || !canArchive}>归档任务</option>}
               <option value="delete" disabled={bodyDirty || !!draft || !!deleteBlockers.length}>删除任务</option>
             </optgroup>
           </select>
-          <p className="taskmd-muted">取消会停止执行；归档会收起已结束的任务，保留完成或取消状态。取消父任务会取消未完成的后代；归档作用于整个子树。</p>
-          {(bodyDirty || !!draft) && <p className="taskmd-muted">归档、取消归档或删除前，请先保存或放弃正文和属性草稿。</p>}
-          {!latest.record.task.archived && !canArchive && <p className="taskmd-muted">归档前，本任务及全部子任务必须已完成或已取消。</p>}
+          <p className="taskmd-muted">取消会停止执行；取消父任务会取消未完成的后代。归档与取消归档在详情顶部一键完成。</p>
+          {(bodyDirty || !!draft) && <p className="taskmd-muted">删除前，请先保存或放弃正文和属性草稿。</p>}
           {!!deleteBlockers.length && <p className="taskmd-muted">暂不能删除：{deleteBlockers.map(item => item.message).join(' ')}</p>}
         </div></div>}
         {compact && <div className="taskmd-property-row" role="group" aria-label="任务操作"><span>操作</span><div className="taskmd-property-actions" aria-describedby={operationHint ? operationHintIds : undefined}>
-          {latest.record.task.archived
-            ? <button type="button" disabled={busy || bodyDirty || !!draft} onClick={() => { setAction('restore'); setNotice(''); setError(''); }}>取消归档</button>
-            : <button type="button" disabled={busy || bodyDirty || !!draft || !canArchive}
-              onClick={() => { setAction('archive'); setNotice(''); setError(''); }}>归档</button>}
           <button type="button" className="taskmd-danger" disabled={busy || bodyDirty || !!draft || !!deleteBlockers.length}
+            title={deleteBlockers.map(item => item.message).join(' ') || undefined}
             onClick={() => { setAction('delete'); setNotice(''); setError(''); }}>删除</button>
         </div></div>}
         {compact && operationHint && <p id={operationHintIds} className="taskmd-property-hint">{operationHint}</p>}

@@ -77,7 +77,7 @@ test('a newly added dependent invalidates an already selected delete operation',
   assert.equal(plans.length, 0);
 });
 
-test('drafts block destructive actions; cancellation and archive use separate status choices', async t => {
+test('drafts block deletion while status edits remain independent', async t => {
   const plans: Plan[] = [];
   const a = task({ status: 'todo' });
   const props = { task: a, record: record(a), state: state(a), onSelect: () => {}, onChanged: async () => {}, port: port({ apply: async plan => { plans.push(plan); return { schemaVersion: 1, requestId: plan.requestId, revision: 'r2', ids: {}, versions: { 'task-a': 'v2' } }; } }) };
@@ -90,10 +90,7 @@ test('drafts block destructive actions; cancellation and archive use separate st
   const done = task({ status: 'done' });
   await act(async () => view.update(createElement(TaskProperties, { ...props, task: done, record: record(done, 'v3'), state: state(done), bodyDirty: false })));
   assert.equal(view.root.findByProps({ value: 'delete' }).props.disabled, true);
-  await selectStatus(view, 'archive');
-  assert.equal(plans.length, 1);
-  await submit(view);
-  assert.deepEqual(plans[1]!.operations, [{ op: 'patch', id: 'task-a', changes: {}, expectedVersion: 'v3' }, { op: 'archive', id: 'task-a' }]);
+  assert.equal(view.root.findAllByProps({ value: 'archive' }).length, 0, 'archive is not a property action');
 });
 
 test('failed deletion retains the chosen action and reports the error in task properties', async t => {
@@ -105,17 +102,13 @@ test('failed deletion retains the chosen action and reports the error in task pr
   assert.equal(buttons(view, '确认永久删除').length, 1);
 });
 
-test('restoring through the status selector preserves the archived task execution status', async t => {
-  const plans: Plan[] = [];
+test('an archived task keeps its execution status in read-only property choices', async t => {
   const a = task({ status: 'done', archived: true });
   const view = await mount(t, createElement(TaskProperties, { task: a, record: record(a), state: state(a), onSelect: () => {}, onChanged: async () => {},
-    port: port({ apply: async plan => { plans.push(plan); return { schemaVersion: 1, requestId: plan.requestId, revision: 'r2', ids: {}, versions: {} }; } }) }));
+    port: port() }));
   assert.equal(view.root.findByProps({ 'aria-label': '任务状态' }).props.value, 'archived');
-  await selectStatus(view, 'restore');
-  assert.equal(plans.length, 0);
-  assert.equal(buttons(view, '确认取消归档').length, 1);
-  await submit(view);
-  assert.deepEqual(plans[0]!.operations, [{ op: 'patch', id: a.id, changes: {}, expectedVersion: 'v1' }, { op: 'restore', id: a.id }]);
+  assert.equal(view.root.findAllByProps({ value: 'restore' }).length, 0, 'restore is a one-click header action');
+  assert.equal(view.root.findByProps({ value: 'delete' }).props.disabled, false);
 });
 
 test('asset contents load lazily, expand independently and collapse without unlinking', async t => {

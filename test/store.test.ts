@@ -467,3 +467,24 @@ test('corrupted repositories.json surfaces invalid_local_data', async () => {
     } finally { store.close(); }
   });
 });
+
+test('a stale version aborts the archive plan atomically', async () => {
+  await withStore(async (store) => {
+    const { id } = await createOne(store);
+    let state = await store.state();
+    await store.apply({ requestId: 'finish-before-archive', baseRevision: state.revision,
+      operations: [{ op: 'patch', id, changes: { status: 'done' } }] });
+    const finished = await store.read(id);
+    state = await store.state();
+    await store.apply({ requestId: 'touch-title', baseRevision: state.revision,
+      operations: [{ op: 'patch', id, changes: { title: '别处改过的标题' } }] });
+    const current = await store.state();
+    await assert.rejects(store.apply({ requestId: 'stale-archive', baseRevision: current.revision, operations: [
+      { op: 'patch', id, changes: {}, expectedVersion: finished.version },
+      { op: 'archive', id },
+    ] }), (error: unknown) => error instanceof TaskError && error.code === 'version_conflict');
+    const after = await store.read(id);
+    assert.equal(after.task.archived, false);
+    assert.equal(after.task.title, '别处改过的标题');
+  });
+});
