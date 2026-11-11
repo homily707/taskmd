@@ -230,8 +230,10 @@ test('wide detail edits the status of a todo task from the summary', async t => 
   const target = task({ status: 'todo' });
   const { port, plans } = portWith(target);
   const view = await mount(t, createElement(TaskmdApp, { port, initialTaskId: target.id }));
-  const select = view.root.findAll(node => node.props['aria-label'] === '任务状态')[0];
-  assert.ok(select);
+  const summary = view.root.findAll(node => node.props.className === 'taskmd-detail-summary')[0];
+  assert.ok(summary, 'the wide detail summary is rendered');
+  const select = summary.findAll(node => node.props['aria-label'] === '任务状态')[0];
+  assert.ok(select, 'the summary owns the status select');
   assert.equal(select.props.value, 'todo');
   await act(async () => {
     select.props.onChange({ target: { value: 'in_progress' }, currentTarget: { value: 'todo' } });
