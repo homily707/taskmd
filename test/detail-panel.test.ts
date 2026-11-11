@@ -226,6 +226,20 @@ test('a failed archive keeps the task active and reports the error', async t => 
   assert.match(alert, /archive blocked/);
 });
 
+test('wide detail edits the status of a todo task from the summary', async t => {
+  const target = task({ status: 'todo' });
+  const { port, plans } = portWith(target);
+  const view = await mount(t, createElement(TaskmdApp, { port, initialTaskId: target.id }));
+  const select = view.root.findAll(node => node.props['aria-label'] === '任务状态')[0];
+  assert.ok(select);
+  assert.equal(select.props.value, 'todo');
+  await act(async () => {
+    select.props.onChange({ target: { value: 'in_progress' }, currentTarget: { value: 'todo' } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+  assert.deepEqual(plans[0]?.operations, [{ op: 'patch', id: 'task-a', expectedVersion: 'v1', changes: { status: 'in_progress' } }]);
+});
+
 test('wide detail exposes the primary status actions and one-click archive', async t => {
   const target = task({ status: 'done' });
   const { port, plans } = portWith(target);

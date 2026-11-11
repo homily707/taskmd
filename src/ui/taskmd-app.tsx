@@ -393,6 +393,22 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
     } catch (error) { if (active.current) setError(failure(error)); }
     finally { statusLock.current = false; if (active.current) setBusy(false); }
   };
+  // One status control for both layouts: the compact header and the wide
+  // summary render the same select, so todo/in-progress tasks stay editable.
+  const statusControl = displayed && !displayed.archived
+    ? <span className="taskmd-status-wrap">
+      <select aria-label="任务状态" title="编辑任务状态" className={`taskmd-status-select is-${displayed.status}`}
+        value={displayed.status} disabled={!record || busy}
+        onChange={event => {
+          const next = event.target.value as TaskStatus;
+          if (statusOptionDisabled(next)) { event.currentTarget.value = displayed.status; return; }
+          void changeStatus(next);
+        }}>
+        {(['todo', 'in_progress', 'done', 'canceled'] as TaskStatus[]).map(value =>
+          <option key={value} value={value} disabled={statusOptionDisabled(value)}>{taskStatusLabels[value]}</option>)}
+      </select>
+    </span>
+    : undefined;
   if (!task) return <p className="taskmd-muted">任务不存在或已删除。</p>;
   const crumb: Task[] = [];
   for (let cursor = state.tasks.find(item => item.id === displayed?.parent); cursor && crumb.length < 4;) {
@@ -407,18 +423,7 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
     {compact ? <header className="taskmd-panel-head">
       <h3 className="taskmd-detail-title" title={id}>{displayed?.title || id}</h3>
       <div className="taskmd-panel-actions">
-        {displayed && !displayed.archived && <span className="taskmd-status-wrap">
-          <select aria-label="任务状态" className={`taskmd-status-select is-${displayed.status}`}
-            value={displayed.status} disabled={!record || busy}
-            onChange={event => {
-              const next = event.target.value as TaskStatus;
-              if (statusOptionDisabled(next)) { event.currentTarget.value = displayed.status; return; }
-              void changeStatus(next);
-            }}>
-            {(['todo', 'in_progress', 'done', 'canceled'] as TaskStatus[]).map(value =>
-              <option key={value} value={value} disabled={statusOptionDisabled(value)}>{taskStatusLabels[value]}</option>)}
-          </select>
-        </span>}
+        {statusControl}
         {displayed?.archived && <span className="taskmd-badge">已归档 · {taskStatusLabels[displayed.status]}</span>}
         {canStart && <button type="button" className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>开始任务</button>}
         {!canStart && canComplete && <button type="button" className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('done'); }}>{count.total > 0 ? '确认完成' : '完成任务'}</button>}
@@ -451,7 +456,9 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
     {readError && <p className="taskmd-error" role="alert">{readError} <button disabled={busy} onClick={() => setReload(value => value + 1)}>重试读取</button></p>}
     {displayed && <>
       {!compact && <div className="taskmd-detail-summary">
-        <span className={`taskmd-badge taskmd-status-${displayed.status}`}>{statusLabels[displayed.status]}</span>
+        {displayed.archived
+          ? <span className={`taskmd-badge taskmd-status-${displayed.status}`}>{statusLabels[displayed.status]}</span>
+          : statusControl}
         {state.ready.includes(displayed.id) && <span className="taskmd-badge taskmd-badge-ready">可开始</span>}
         {displayed.archived && <span className="taskmd-badge">已归档</span>}
         {!!count.total && <span className="taskmd-muted">子任务 {count.done}/{count.total} 完成{count.canceled > 0 && ` · ${count.canceled} 取消`}</span>}

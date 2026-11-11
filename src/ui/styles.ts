@@ -138,7 +138,7 @@ export const styles = `
 .taskmd-status-wrap{position:relative;display:inline-flex;align-items:center;flex:none}
 .taskmd-status-wrap select{appearance:none;-webkit-appearance:none;width:auto;border-radius:999px;padding:4px 22px 4px 10px;font-size:12px;line-height:1.4;cursor:pointer;background:transparent;border-color:var(--tm-border)}
 .taskmd-status-wrap select:focus-visible{outline:2px solid var(--tm-accent);outline-offset:1px}
-.taskmd-status-wrap:after{content:"▾";position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:9px;color:var(--tm-muted);pointer-events:none}
+.taskmd-status-wrap:after{content:"▾";position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:10px;line-height:1;color:currentColor;opacity:.55;pointer-events:none}
 .taskmd-status-select.is-in_progress{color:var(--tm-accent);border-color:color-mix(in srgb,var(--tm-accent) 55%,transparent)}
 .taskmd-status-select.is-done{color:var(--tm-ok);border-color:color-mix(in srgb,var(--tm-ok) 45%,transparent)}
 .taskmd-status-select.is-canceled{color:var(--tm-muted);text-decoration:line-through}
