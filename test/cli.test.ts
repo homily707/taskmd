@@ -122,14 +122,15 @@ test('cli start --if-version mismatch returns VERSION_CONFLICT', async () => {
   });
 });
 
-test('cli start rejects a task that is not Ready', async () => {
-  await withSandbox(async (sandbox) => {
-    const blocker = await createTask(sandbox, '阻塞项');
-    const dependent = await createTask(sandbox, '被阻塞');
-    const ok = await runCli(sandbox, ['--json', 'deps', dependent, 'add', blocker]);
-    assert.equal(ok.code, 0, ok.stderr);
-    const failed = await runCli(sandbox, ['--json', 'start', dependent]);
-    assert.equal(failed.code, 1);
-    assert.equal((JSON.parse(failed.stderr.trim()) as Record<string, unknown>).code, 'TASK_NOT_READY');
+test('cli start ignores informational dependencies', async () => {
+  await withSandbox(async sandbox => {
+    const dependency = await createTask(sandbox, '参考文档');
+    const target = await createTask(sandbox, '实施文档');
+    const linked = await runCli(sandbox, ['--json', 'deps', target, 'add', dependency]);
+    assert.equal(linked.code, 0, linked.stderr);
+    const started = await runCli(sandbox, ['--json', 'start', target]);
+    assert.equal(started.code, 0, started.stderr);
+    const shown = await cliJson(sandbox, ['show', target]);
+    assert.equal((shown.task as Record<string, unknown>).status, 'in_progress');
   });
 });

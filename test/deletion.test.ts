@@ -16,14 +16,12 @@ const blocker = (name: string) => (error: unknown) => code('delete_blocked')(err
   && (error as { details: { code: string }[] }).details.some(item => item.code === name);
 
 for (const status of ['todo', 'in_progress', 'done'] as TaskStatus[]) {
-  test(`delete refuses an unarchived ${status} task without modifying it`, async () => withSandbox(async () => {
+  test(`delete accepts an unarchived ${status} document`, async () => withSandbox(async () => {
     const store = new Store();
     try {
       const result = await apply(store, [{ op: 'create', key: 'a', task: { title: 'A', status } }]);
-      const before = await store.read(result.ids.a!);
-      await assert.rejects(apply(store, [{ op: 'delete', id: result.ids.a! }]), blocker('delete_requires_terminal'));
-      assert.equal((await store.read(result.ids.a!)).version, before.version);
-      assert.equal((await store.state()).revision, result.revision);
+      await apply(store, [{ op: 'delete', id: result.ids.a! }]);
+      assert.equal((await store.state()).tasks.length, 0);
     } finally { store.close(); }
   }));
 }
@@ -50,21 +48,16 @@ for (const archived of [false, true]) {
   }));
 }
 
-test('both dependency directions block deletion, including archived tasks', async () => withSandbox(async () => {
+test('deleting a referenced document preserves its informational link', async () => withSandbox(async () => {
   const store = new Store();
   try {
     const result = await apply(store, [
-      { op: 'create', key: 'a', task: { title: 'A', status: 'done', archived: true } },
-      { op: 'create', key: 'b', task: { title: 'B', status: 'canceled', archived: true, blocked_by: [{ key: 'a' }] } },
+      { op: 'create', key: 'a', task: { title: 'A' } },
+      { op: 'create', key: 'b', task: { title: 'B', blocked_by: [{ key: 'a' }] } },
     ]);
-    await assert.rejects(apply(store, [{ op: 'delete', id: result.ids.a! }]), blocker('delete_has_dependents'));
-    await assert.rejects(apply(store, [{ op: 'delete', id: result.ids.b! }]), blocker('delete_has_dependencies'));
-    await apply(store, [
-      { op: 'patch', id: result.ids.b!, changes: { blocked_by: [] } },
-      { op: 'delete', id: result.ids.a! },
-    ]);
-    assert.deepEqual((await store.state()).tasks.map(task => task.id), [result.ids.b]);
-    assert.deepEqual((await store.read(result.ids.b!)).task.blocked_by, []);
+    await apply(store, [{ op: 'delete', id: result.ids.a! }]);
+    assert.deepEqual((await store.read(result.ids.b!)).task.blocked_by, [result.ids.a!]);
+    assert.ok((await store.state()).diagnostics.some(issue => issue.code === 'MISSING_DEPENDENCY' && issue.severity === 'warning'));
   } finally { store.close(); }
 }));
 
@@ -132,14 +125,11 @@ test('recovery refuses to erase an externally edited task', async () => withSand
   } finally { store.close(); }
 }));
 
-test('CLI delete applies the same prerequisites and supports --if-version', async () => withSandbox(async sandbox => {
+test('CLI delete accepts a todo document with version checking', async () => withSandbox(async sandbox => {
   const created = await cliJson(sandbox, ['create', 'delete me']);
-  const id = created.ids.task;
-  const refused = await runCli(sandbox, ['--json', 'delete', id]);
-  assert.equal(refused.code, 1);
-  assert.equal(JSON.parse(refused.stderr).code, 'delete_blocked');
-  await cliJson(sandbox, ['status', id, 'canceled']);
-  const record = await cliJson(sandbox, ['show', id]);
-  await cliJson(sandbox, ['delete', id, '--if-version', record.version]);
-  assert.deepEqual((await cliJson(sandbox, ['list'])).tasks, []);
+  const id = (created.ids as Record<string, string>).task;
+  const shown = await cliJson(sandbox, ['show', id]);
+  await cliJson(sandbox, ['delete', id, '--if-version', shown.version as string]);
+  const state = await cliJson(sandbox, ['list']);
+  assert.equal((state.tasks as unknown[]).length, 0);
 }));
