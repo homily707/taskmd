@@ -70,58 +70,20 @@ test('apply is idempotent per requestId and rejects reuse with different content
   });
 });
 
-test('parents may declare same-parent dependencies; cross-parent and dangling refs fail validation', async () => {
-  await withStore(async (store) => {
+test('informational references can cross parents or point to absent documents', async () => {
+  await withStore(async store => {
+    const start = await store.state();
+    const made = await store.apply({ requestId: 'tree-1', baseRevision: start.revision, operations: [
+      { op: 'create', key: 'parent', task: { title: '父' } },
+      { op: 'create', key: 'child', task: { title: '子', parent: { key: 'parent' } } },
+      { op: 'create', key: 'leaf', task: { title: '叶子' } },
+    ] });
+    await store.apply({ requestId: 'link', baseRevision: made.revision, operations: [
+      { op: 'patch', id: made.ids.child!, changes: { blocked_by: [made.ids.leaf!, 'missing-task'] } },
+    ] });
     const state = await store.state();
-    const result = await store.apply({
-      requestId: 'tree-1',
-      baseRevision: state.revision,
-      operations: [
-        { op: 'create', key: 'parent', task: { title: '父' } },
-        { op: 'create', key: 'child', task: { title: '子', parent: { key: 'parent' } } },
-        { op: 'create', key: 'leaf', task: { title: '叶子' } },
-      ],
-    });
-    assert.equal(Object.keys(result.ids).length, 3);
-
-    // T7: a parent may depend on same-parent siblings (both are roots here).
-    const allowed = await store.apply({
-      requestId: 'tree-2',
-      baseRevision: result.revision,
-      operations: [{ op: 'patch', id: result.ids.parent!, changes: { blocked_by: [result.ids.leaf!] } }],
-    });
-    assert.ok(allowed.versions[result.ids.parent!] !== undefined);
-
-    // Cross-parent direct dependencies are scope errors (child under parent vs. root leaf).
-    await assert.rejects(
-      store.apply({
-        requestId: 'tree-2b',
-        baseRevision: allowed.revision,
-        operations: [{ op: 'patch', id: result.ids.child!, changes: { blocked_by: [result.ids.leaf!] } }],
-      }),
-      (error: unknown) => {
-        assert.ok(error instanceof TaskError && error.code === 'validation_failed');
-        const codes = (error.details as Array<{ code: string }>).map((entry) => entry.code);
-        assert.ok(codes.includes('DEPENDENCY_SCOPE'), `unexpected diagnostics: ${codes.join(', ')}`);
-        return true;
-      },
-    );
-
-    // Unknown dependency IDs are validation errors too.
-    const afterScope = await store.state();
-    await assert.rejects(
-      store.apply({
-        requestId: 'tree-3',
-        baseRevision: afterScope.revision,
-        operations: [{ op: 'patch', id: result.ids.leaf!, changes: { blocked_by: ['task-missing'] } }],
-      }),
-      (error: unknown) => {
-        assert.ok(error instanceof TaskError && error.code === 'validation_failed');
-        const codes = (error.details as Array<{ code: string }>).map((entry) => entry.code);
-        assert.ok(codes.includes('MISSING_DEPENDENCY'), `unexpected diagnostics: ${codes.join(', ')}`);
-        return true;
-      },
-    );
+    assert.ok(state.diagnostics.some(issue => issue.code === 'MISSING_DEPENDENCY' && issue.severity === 'warning'));
+    assert.equal(state.diagnostics.filter(issue => issue.severity === 'error').length, 0);
   });
 });
 

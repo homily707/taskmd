@@ -56,25 +56,16 @@ test('delete is selected in task properties and requires explicit confirmation b
   assert.equal(refreshed, 1);
 });
 
-test('status selector explains and disables deletion for state, dependency and child blockers', async t => {
+test('only child documents block deletion; state and links do not', async t => {
   const a = task({ status: 'todo', blocked_by: ['dep'] });
-  const view = await mount(t, createElement(TaskProperties, { task: a, record: record(a), state: state(a, task({ id: 'dep' }), task({ id: 'child', parent: a.id }), task({ id: 'dependent', title: '依赖方', blocked_by: [a.id], archived: true })), onSelect: () => {}, port: port(), onChanged: async () => {} }));
+  const props = { task: a, record: record(a), onSelect: () => {}, port: port(), onChanged: async () => {} };
+  const view = await mount(t, createElement(TaskProperties, {
+    ...props, state: state(a, task({ id: 'dep' }), task({ id: 'child', parent: a.id })),
+  }));
   assert.equal(view.root.findByProps({ value: 'delete' }).props.disabled, true);
-  assert.match(text(view.root), /先取消或归档/);
-  assert.match(text(view.root), /全部直接依赖/);
-  assert.match(text(view.root), /依赖方/);
-  assert.match(text(view.root), /全部子任务/);
-});
-
-test('a newly added dependent invalidates an already selected delete operation', async t => {
-  const plans: Plan[] = [];
-  const props = { task: task(), record: record(task()), onSelect: () => {}, port: port({ apply: async plan => { plans.push(plan); throw new Error('must not submit'); } }), onChanged: async () => {} };
-  const view = await mount(t, createElement(TaskProperties, { ...props, state: state(task()) }));
-  await selectStatus(view, 'delete');
-  await act(async () => view.update(createElement(TaskProperties, { ...props, state: state(task(), task({ id: 'dependent', blocked_by: ['task-a'] })) })));
-  assert.equal(buttons(view, '确认永久删除')[0]!.props.disabled, true);
-  await submit(view);
-  assert.equal(plans.length, 0);
+  assert.match(text(view.root), /先移动或删除子任务/);
+  await act(async () => view.update(createElement(TaskProperties, { ...props, state: state(a, task({ id: 'dep' })) })));
+  assert.equal(view.root.findByProps({ value: 'delete' }).props.disabled, false);
 });
 
 test('drafts block deletion while status edits remain independent', async t => {

@@ -422,7 +422,7 @@ test('saving properties leaves an unsaved body draft untouched', async t => {
   assert.equal(button(editor, '保存正文').props.disabled, false);
 });
 
-test('dependency candidates are limited to siblings under the same direct parent', async t => {
+test('informational reference candidates include all other documents', async t => {
   const parent = makeTask({ id: 'task-p', title: '父任务', order: 'a0' });
   const sibling = makeTask({ id: 'task-b', title: '兄弟 B', parent: parent.id, order: 'a1' });
   const other = makeTask({ id: 'task-c', title: '表亲 C', parent: 'task-other', order: 'a2' });
@@ -437,15 +437,15 @@ test('dependency candidates are limited to siblings under the same direct parent
   }));
 
   assert.deepEqual(dependencyTitles(view), [], 'unselected siblings are not displayed as dependencies');
-  assert.deepEqual(field(view, '添加依赖').findAllByType('option').slice(1).map(text), ['兄弟 B']);
+  assert.deepEqual(field(view, '添加依赖').findAllByType('option').slice(1).map(text), ['父任务', '兄弟 B', '表亲 C']);
   await act(async () => { field(view, '添加依赖').props.onChange({ target: { value: sibling.id } }); });
   assert.deepEqual(dependencyTitles(view), ['兄弟 B']);
-  assert.equal(field(view, '添加依赖').findAllByType('option').length, 1, 'selected dependencies are excluded from the picker');
+  assert.equal(field(view, '添加依赖').findAllByType('option').length, 3, 'selected references are excluded from the picker');
   await submit(view);
   assert.deepEqual((plans[0]!.operations[0] as { changes: { blocked_by: string[] } }).changes, { blocked_by: ['task-b'] });
 });
 
-test('changing the parent re-scopes the dependency candidates', async t => {
+test('changing the parent does not hide informational references', async t => {
   const parent = makeTask({ id: 'task-p', title: '父任务' });
   const sibling = makeTask({ id: 'task-b', title: '兄弟 B', parent: parent.id });
   const rootSibling = makeTask({ id: 'task-r', title: '根兄弟 R' });
@@ -459,10 +459,10 @@ test('changing the parent re-scopes the dependency candidates', async t => {
     task, record: makeRecord(task), port, state: makeState(tasks), onChanged: async () => {}, onSelect: () => {},
   }));
 
-  assert.deepEqual(field(view, '添加依赖').findAllByType('option').slice(1).map(text), ['兄弟 B']);
+  assert.deepEqual(field(view, '添加依赖').findAllByType('option').slice(1).map(text), ['父任务', '兄弟 B', '根兄弟 R']);
   await act(async () => { field(view, '父任务').props.onChange({ target: { value: '' } }); });
   // Moving to the root re-scopes the list to the root's other tasks.
-  assert.deepEqual(field(view, '添加依赖').findAllByType('option').slice(1).map(text), ['父任务', '根兄弟 R']);
+  assert.deepEqual(field(view, '添加依赖').findAllByType('option').slice(1).map(text), ['父任务', '兄弟 B', '根兄弟 R']);
 });
 
 test('an invalid existing dependency stays visible and removable', async t => {
@@ -479,7 +479,7 @@ test('an invalid existing dependency stays visible and removable', async t => {
   }));
 
   const row = dependencyRows(view).find(node => text(node).includes('表亲 C'))!;
-  assert.match(text(row), /现有关系已失效/);
+  assert.doesNotMatch(text(row), /关联文档不存在/);
   assert.equal(row.findByType('input').props.checked, true);
   await act(async () => { row.findByType('input').props.onChange({ target: { checked: false } }); });
   await submit(view);

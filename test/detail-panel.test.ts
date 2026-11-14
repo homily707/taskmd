@@ -85,16 +85,16 @@ test('compact panel starts and completes a task from the header', async t => {
   const target = task({ status: 'todo' });
   const { port, plans } = portWith(target);
   const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
-  assert.ok(hasButton(view, '开始任务'), 'todo tasks expose the start action');
+  assert.ok(hasButton(view, '标记进行中'), 'todo tasks expose the start action');
   assert.equal(view.root.findAll(node => node.props['aria-label'] === '任务状态').length, 1, 'one status control');
 
-  await click(view, '开始任务');
+  await click(view, '标记进行中');
   assert.deepEqual(plans[0]?.operations, [{ op: 'patch', id: 'task-a', expectedVersion: 'v1', changes: { status: 'in_progress' } }]);
-  assert.ok(hasButton(view, '完成任务'), 'in-progress tasks expose the complete action');
+  assert.ok(hasButton(view, '标记完成'), 'in-progress tasks expose the complete action');
 
-  await click(view, '完成任务');
+  await click(view, '标记完成');
   assert.deepEqual(plans[1]?.operations, [{ op: 'patch', id: 'task-a', expectedVersion: 'v2', changes: { status: 'done' } }]);
-  assert.ok(hasButton(view, '重新打开'), 'done tasks expose the reopen action');
+  assert.ok(hasButton(view, '标记待办'), 'done tasks expose the reopen action');
 });
 
 test('a body draft survives a header status change and rebases its save version', async t => {
@@ -104,7 +104,7 @@ test('a body draft survives a header status change and rebases its save version'
   const editor = view.root.findByType('textarea');
   await act(async () => { editor.props.onChange({ target: { value: '# 本地草稿\n' } }); });
 
-  await click(view, '开始任务');
+  await click(view, '标记进行中');
   assert.equal(view.root.findByType('textarea').props.value, '# 本地草稿\n', 'the body draft is untouched by the status write');
 
   await click(view, '保存正文');
@@ -117,7 +117,7 @@ test('a property draft survives a header status change and does not resend statu
   const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
   await act(async () => { field(view, '任务标题').props.onChange({ target: { value: '任务 A2' } }); });
 
-  await click(view, '开始任务');
+  await click(view, '标记进行中');
   assert.equal(field(view, '任务标题').props.value, '任务 A2', 'the property draft is untouched by the status write');
 
   await submit(view);
@@ -130,9 +130,9 @@ test('a failed status request keeps the old status and reports the error', async
   const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
   failNext(Object.assign(new Error('network unavailable'), { code: 'network_error' }));
 
-  await click(view, '开始任务');
+  await click(view, '标记进行中');
   assert.equal(plans.length, 1);
-  assert.ok(hasButton(view, '开始任务'), 'the task stays actionable in its old status');
+  assert.ok(hasButton(view, '标记进行中'), 'the task stays actionable in its old status');
   const alert = view.root.findAll(node => node.props.role === 'alert').map(text).join('\n');
   assert.match(alert, /network unavailable/);
 });
@@ -141,7 +141,7 @@ test('a double click on the status action sends one mutation', async t => {
   const target = task({ status: 'todo' });
   const { port, plans } = portWith(target);
   const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
-  const action = view.root.findAllByType('button').find(node => text(node) === '开始任务');
+  const action = view.root.findAllByType('button').find(node => text(node) === '标记进行中');
   assert.ok(action);
   await act(async () => {
     action.props.onClick();
@@ -246,7 +246,7 @@ test('wide detail exposes the primary status actions and one-click archive', asy
   const target = task({ status: 'done' });
   const { port, plans } = portWith(target);
   const view = await mount(t, createElement(TaskmdApp, { port, initialTaskId: target.id }));
-  assert.ok(hasButton(view, '重新打开'), 'a terminal task can reopen from the detail summary');
+  assert.ok(hasButton(view, '标记待办'), 'a terminal task can reopen from the detail summary');
   assert.ok(hasButton(view, '归档'));
   await click(view, '归档');
   assert.deepEqual(plans[0]?.operations, [
@@ -261,7 +261,7 @@ test('the status select and primary button share one pending guard', async t => 
   const { port, plans } = portWith(target);
   const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: target.id }));
   const select = view.root.findAll(node => node.props['aria-label'] === '任务状态')[0];
-  const action = view.root.findAllByType('button').find(node => text(node) === '开始任务');
+  const action = view.root.findAllByType('button').find(node => text(node) === '标记进行中');
   assert.ok(select && action);
   await act(async () => {
     select.props.onChange({ target: { value: 'in_progress' }, currentTarget: { value: 'todo' } });
@@ -272,9 +272,9 @@ test('the status select and primary button share one pending guard', async t => 
   assert.deepEqual(plans[0]?.operations, [{ op: 'patch', id: 'task-a', expectedVersion: 'v1', changes: { status: 'in_progress' } }]);
 });
 
-test('a parent task exposes completion only after all children are terminal', async t => {
-  const parent = task({ id: 'task-p', status: 'todo' });
-  const child = task({ id: 'task-c', parent: 'task-p', status: 'todo' });
+test('parent and referenced task labels remain editable independently', async t => {
+  const parent = task({ id: 'task-p', status: 'todo', blocked_by: ['task-x'] });
+  const child = task({ id: 'task-c', parent: parent.id, status: 'todo' });
   const port: TaskGraphPort = {
     getState: async () => state([parent, child]),
     readTask: async id => record([parent, child].find(item => item.id === id)!),
@@ -285,44 +285,8 @@ test('a parent task exposes completion only after all children are terminal', as
   const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: parent.id }));
   const select = view.root.findAll(node => node.props['aria-label'] === '任务状态')[0]!;
   const options = select.findAllByType('option');
-  assert.equal(options.find(option => option.props.value === 'in_progress')!.props.disabled, true);
-  assert.equal(options.find(option => option.props.value === 'done')!.props.disabled, true);
-  assert.equal(hasButton(view, '开始任务'), false);
-  assert.equal(hasButton(view, '确认完成'), false);
-  assert.equal(hasButton(view, '完成任务'), false);
-});
-
-test('a parent task can complete once every child is terminal', async t => {
-  const parent = task({ id: 'task-p', status: 'in_progress' });
-  const child = task({ id: 'task-c', parent: 'task-p', status: 'done' });
-  const port: TaskGraphPort = {
-    getState: async () => state([parent, child]),
-    readTask: async id => record([parent, child].find(item => item.id === id)!),
-    apply: async () => { throw new Error('unused'); },
-    readAsset: async () => { throw new Error('unused'); },
-    subscribe: () => () => {},
-  };
-  const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: parent.id }));
-  const select = view.root.findAll(node => node.props['aria-label'] === '任务状态')[0]!;
-  assert.equal(select.findAllByType('option').find(option => option.props.value === 'done')!.props.disabled, false);
-  assert.ok(hasButton(view, '确认完成'));
-});
-
-test('a blocked leaf explains its blocker and disables start and complete', async t => {
-  const dependency = task({ id: 'task-dep', title: '前置任务', status: 'todo' });
-  const blocked = task({ id: 'task-b', title: '阻塞任务', status: 'todo', blocked_by: ['task-dep'] });
-  const port: TaskGraphPort = {
-    getState: async () => state([dependency, blocked]),
-    readTask: async id => record([dependency, blocked].find(item => item.id === id)!),
-    apply: async () => { throw new Error('unused'); },
-    readAsset: async () => { throw new Error('unused'); },
-    subscribe: () => () => {},
-  };
-  const view = await mount(t, createElement(TaskmdDetailPanel, { port, taskId: blocked.id }));
-  const select = view.root.findAll(node => node.props['aria-label'] === '任务状态')[0]!;
-  const options = select.findAllByType('option');
-  assert.equal(options.find(option => option.props.value === 'in_progress')!.props.disabled, true);
-  assert.equal(options.find(option => option.props.value === 'done')!.props.disabled, true);
-  const textContent = view.root.findAll(node => node.props.role === 'status').map(text).join('\n');
-  assert.match(textContent, /前置任务/);
+  assert.equal(options.find(option => option.props.value === 'in_progress')!.props.disabled, false);
+  assert.equal(options.find(option => option.props.value === 'done')!.props.disabled, false);
+  assert.ok(hasButton(view, '标记进行中'));
+  assert.ok(hasButton(view, '归档'));
 });

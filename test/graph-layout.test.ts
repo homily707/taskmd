@@ -137,41 +137,14 @@ test('filtered tasks keep their ancestors as context without changing parents', 
   assert.deepEqual(graphContext(filtered, tasks).map(item => item.id), ['root', 'a', 'x']);
 });
 
-test('a cross-parent dependency is diagnosed, not silently turned into an island', () => {
+test('cross-parent document references do not produce graph errors', () => {
   const tasks = [
-    task('root', null),
-    task('a', 'root'),
-    task('b', 'root'),
+    task('root', null), task('a', 'root'), task('b', 'root'),
     task('x', 'a', { blocked_by: ['b'] }),
   ];
   const layout = buildGraphLayout(tasks, { scope: 'a' });
-  const frame = frameOf(layout, 'a')!;
-  assert.deepEqual(frame.dependencies, []);
-  // No cross-frame solid edge is invented to "keep" the relation visible.
-  for (const other of layout.frames) for (const edge of other.dependencies) assert.notEqual(edge.target, 'x');
-  const diagnostics = layout.diagnostics.filter(item => item.taskId === 'x');
-  assert.equal(diagnostics.length, 1, 'one problem, one diagnostic');
-  assert.equal(diagnostics[0]!.severity, 'error');
-  assert.match(diagnostics[0]!.message, /b/);
-  assert.match(diagnostics[0]!.message, /x/);
-});
-
-test('a stale diagnostic snapshot still yields a graph-level cross-parent finding', () => {
-  const tasks = [task('root', null), task('a', 'root'), task('b', 'root'), task('x', 'a', { blocked_by: ['b'] })];
-  const layout = buildGraphLayout(tasks, { scope: 'a', diagnostics: [] });
-  const diagnostic = layout.diagnostics.find(item => item.taskId === 'x');
-  assert.ok(diagnostic);
-  assert.equal(diagnostic!.code, 'CROSS_PARENT_DEPENDENCY');
-  assert.match(diagnostic!.message, /B/);
-  assert.match(diagnostic!.message, /X/);
-});
-
-test('a fresh core snapshot is not duplicated by the graph fallback', () => {
-  const tasks = [task('root', null), task('a', 'root'), task('b', 'root'), task('x', 'a', { blocked_by: ['b'] })];
-  const layout = buildGraphLayout(tasks, { scope: 'a', diagnostics: analyze(tasks).diagnostics });
-  const crossParent = layout.diagnostics.filter(item => item.taskId === 'x'
-    && (item.code === 'CROSS_PARENT_DEPENDENCY' || item.code === 'DEPENDENCY_SCOPE'));
-  assert.equal(crossParent.length, 1);
+  assert.deepEqual(frameOf(layout, 'a')!.dependencies, []);
+  assert.equal(layout.diagnostics.filter(item => item.taskId === 'x' && item.severity === 'error').length, 0);
 });
 
 test('an empty scope still renders a frame with a heading', () => {

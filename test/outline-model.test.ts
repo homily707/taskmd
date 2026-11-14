@@ -36,23 +36,12 @@ test('moving a task into its own descendant is rejected', () => {
   assert.throws(() => moveOperations(tasks, 'A', 'A', 'after'), /自身或后代/);
 });
 
-test('a move that would break another task incoming dependency is rejected with the edge named', () => {
-  // E stays at the root while D moves under P: the E→D edge would cross parents.
-  const tasks = [
-    task({ id: 'P' }), task({ id: 'D' }), task({ id: 'E', blocked_by: ['D'] }),
-  ];
-  assert.throws(() => moveOperations(tasks, 'D', 'P', 'inside'), /跨父依赖/);
-  // Moving both ends to the same parent is fine, and no other edge exists here.
-  const clean = [task({ id: 'P' }), task({ id: 'D' }), task({ id: 'E', parent: 'P' })];
-  assert.doesNotThrow(() => moveOperations(clean, 'D', 'P', 'inside'));
-});
-
-test('outgoing dependency edges are checked as well', () => {
-  // D depends on E under Q; moving D under P would leave the edge across parents.
-  const tasks = [
-    task({ id: 'P' }), task({ id: 'Q' }), task({ id: 'E', parent: 'Q' }), task({ id: 'D', blocked_by: ['E'] }),
-  ];
-  assert.throws(() => moveOperations(tasks, 'D', 'P', 'inside'), /跨父依赖/);
+test('moving documents keeps informational references intact', () => {
+  const tasks = [task({ id: 'P' }), task({ id: 'D' }), task({ id: 'E', blocked_by: ['D'] })];
+  const operations = moveOperations(tasks, 'D', 'P', 'inside');
+  assert.ok(operations.some(op => op.op === 'patch' && op.id === 'D'));
+  const outgoing = [task({ id: 'P' }), task({ id: 'Q' }), task({ id: 'E', parent: 'Q' }), task({ id: 'D', blocked_by: ['E'] })];
+  assert.doesNotThrow(() => moveOperations(outgoing, 'D', 'P', 'inside'));
 });
 
 test('indent uses the previous sibling as the new parent; outdent follows the current parent', () => {
