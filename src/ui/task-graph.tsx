@@ -69,7 +69,7 @@ function TaskCard({ data, selected }: NodeProps<TaskNode>) {
     <small className="taskmd-graph-note" title={data.diagnostics.join('\n')}>
       {data.diagnostics.length ? '⚠ 关系异常，见图诊断'
         : data.hiddenDependencies ? `含 ${data.hiddenDependencies} 个当前图外的前置任务`
-        : data.ready ? '可开始'
+        : data.ready ? '待办'
         : data.waiting || (data.context ? '上层任务（筛选上下文）' : ' ')}
     </small>
     {!!data.childCount && <div className="taskmd-graph-actions">

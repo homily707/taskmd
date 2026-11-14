@@ -183,7 +183,7 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
 
   // Direct dependencies may only point at siblings under the same direct parent;
   // the parent field itself is editable, and moving it re-scopes this list.
-  const candidates = state.tasks.filter(candidate => candidate.id !== id && candidate.parent === fields.parent);
+  const candidates = state.tasks.filter(candidate => candidate.id !== id);
   const candidateIds = new Set(candidates.map(candidate => candidate.id));
   // Edges that are already invalid stay visible and selected: the user has to
   // remove them explicitly instead of losing them silently.
@@ -221,7 +221,7 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
                 blocked_by: event.target.checked
                   ? [...fields.blocked_by, dependencyId]
                   : fields.blocked_by.filter(value => value !== dependencyId),
-              })} />{label(dependencyId)}{!valid && <span className="taskmd-error">（现有关系已失效：缺失、自依赖或与当前父任务不同；请明确移除或调整父任务）</span>}</label>
+              })} />{label(dependencyId)}{!valid && <span className="taskmd-error">（关联文档不存在，可解除引用）</span>}</label>
               {!compact && <button type="button" onClick={() => onSelect(dependencyId)}>查看依赖任务</button>}
             </div>;
           })}
@@ -245,7 +245,7 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
               <option value="delete" disabled={bodyDirty || !!draft || !!deleteBlockers.length}>删除任务</option>
             </optgroup>
           </select>
-          <p className="taskmd-muted">取消会停止执行；取消父任务会取消未完成的后代。归档与取消归档在详情顶部一键完成。</p>
+          <p className="taskmd-muted">状态只是文档标记，不会自动更改子任务或 Agent 的执行状态。</p>
           {(bodyDirty || !!draft) && <p className="taskmd-muted">删除前，请先保存或放弃正文和属性草稿。</p>}
           {!!deleteBlockers.length && <p className="taskmd-muted">暂不能删除：{deleteBlockers.map(item => item.message).join(' ')}</p>}
         </div></div>}

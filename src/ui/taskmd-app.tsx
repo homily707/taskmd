@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { State, Task, TaskRecord, TaskSessionBinding, TaskStatus } from '../types.js';
 import type { SessionCapability, SessionStatus, SessionStatusSource, TaskGraphPort } from './port.js';
-import { executionBlockers } from '../core/graph.js';
 import { compareTasks, descendants, failure, progress, statusLabels, useTasks } from './shared.js';
 import { agentView, chipLabel, formatTokens, levelLabels, levelOf, relativeActivity, type AgentLevel, type TaskAgentView } from './agent-status.js';
 import { TaskOutline } from './task-outline.js';
@@ -249,7 +248,7 @@ export function TaskmdApp({ port, sessions, initialTaskId, sessionId, onOpenTask
           <input aria-label="搜索任务" placeholder="搜索任务" value={query} onChange={event => setQuery(event.target.value)} />
           <div className="taskmd-filter-chips" role="group" aria-label="状态筛选">
             <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>全部</button>
-            <button aria-pressed={filter === 'ready'} onClick={() => setFilter('ready')}>可开始 · {ready.size}</button>
+            <button aria-pressed={filter === 'ready'} onClick={() => setFilter('ready')}>待办 · {ready.size}</button>
             <button aria-pressed={filter === 'progress'} onClick={() => setFilter('progress')}>进行中</button>
             {agent.enabled && <button aria-pressed={filter === 'agent'} onClick={() => setFilter('agent')}>Agent 活动</button>}
           </div>
@@ -341,35 +340,18 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
     return () => controller.abort();
   }, [id, port, state.revision, reload]);
   const displayed = task || record?.task;
-  const blockers = displayed && (displayed.status === 'todo' || displayed.status === 'in_progress')
-    ? executionBlockers(state.tasks, displayed.id) : [];
   const count = displayed ? progress(state.tasks, displayed.id) : { total: 0, done: 0, canceled: 0, terminal: 0 };
-  const childrenComplete = count.terminal === count.total;
-  const terminalStatus = displayed?.status === 'done' || displayed?.status === 'canceled';
-  const subtreeTerminal = !!displayed && [...descendants(state.tasks, displayed.id)]
-    .every(member => {
-      const item = state.tasks.find(task => task.id === member);
-      return item?.status === 'done' || item?.status === 'canceled';
-    });
-  const canArchive = !!record && !!displayed && !displayed.archived && terminalStatus && subtreeTerminal;
-  const archiveTitle = draftPending ? '先保存或放弃正文、属性草稿'
-    : !subtreeTerminal ? '先完成或取消本任务及其全部子任务' : undefined;
-  const canStart = !!record && !!displayed && displayed.status === 'todo' && !displayed.archived
-    && count.total === 0 && blockers.length === 0 && !busy;
-  const canComplete = !!record && !!displayed && (displayed.status === 'todo' || displayed.status === 'in_progress')
-    && !displayed.archived && childrenComplete && blockers.length === 0 && !busy;
-  const canReopen = !!record && !!displayed && (displayed.status === 'done' || displayed.status === 'canceled') && !displayed.archived && !busy;
-  const statusOptionDisabled = (value: TaskStatus): boolean => {
-    if (!record || !displayed || busy || value === displayed.status) return !record || busy;
-    if (value === 'done') return !childrenComplete || blockers.length > 0;
-    if (value === 'in_progress' && displayed.status === 'todo') return count.total > 0 || blockers.length > 0;
-    return false;
-  };
+  const canArchive = !!record && !!displayed && !displayed.archived;
+  const archiveTitle = draftPending ? '先保存或放弃正文、属性草稿' : undefined;
+  const canStart = !!record && !!displayed && displayed.status === 'todo' && !busy;
+  const canComplete = !!record && !!displayed &&
+    (displayed.status === 'todo' || displayed.status === 'in_progress') && !busy;
+  const canReopen = !!record && !!displayed &&
+    (displayed.status === 'done' || displayed.status === 'canceled') && !busy;
+  const statusOptionDisabled = (_value: TaskStatus): boolean => !record || busy;
   // One writer for every visible status transition; graph rules still validate it.
   const changeStatus = async (next: TaskStatus) => {
     if (!record || !displayed || busy || statusLock.current || next === displayed.status) return;
-    if (next === 'canceled' && typeof window !== 'undefined'
-      && !window.confirm('取消任务会停止执行，并取消未完成的后代。继续？')) return;
     statusLock.current = true;
     setBusy(true); setError(''); setNotice('');
     try {
@@ -425,10 +407,10 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
       <div className="taskmd-panel-actions">
         {statusControl}
         {displayed?.archived && <span className="taskmd-badge">已归档 · {taskStatusLabels[displayed.status]}</span>}
-        {canStart && <button type="button" className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>开始任务</button>}
-        {!canStart && canComplete && <button type="button" className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('done'); }}>{count.total > 0 ? '确认完成' : '完成任务'}</button>}
-        {!canStart && !canComplete && canReopen && <button type="button" className="taskmd-primary-action is-secondary" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>重新打开</button>}
-        {displayed && !displayed.archived && terminalStatus && <button type="button" className="taskmd-secondary-action"
+        {canStart && <button type="button" className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>标记进行中</button>}
+        {!canStart && canComplete && <button type="button" className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('done'); }}>标记完成</button>}
+        {!canStart && !canComplete && canReopen && <button type="button" className="taskmd-primary-action is-secondary" disabled={busy} onClick={() => { void changeStatus('todo'); }}>标记待办</button>}
+        {displayed && !displayed.archived && <button type="button" className="taskmd-secondary-action"
           disabled={busy || draftPending || !canArchive} title={archiveTitle} onClick={() => { void changeArchive('archive'); }}>归档</button>}
         {displayed?.archived && <button type="button" className="taskmd-secondary-action"
           disabled={busy || draftPending || !record} title={draftPending ? '先保存或放弃正文、属性草稿' : undefined}
@@ -440,13 +422,6 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
           <i style={{ '--p': `${Math.round(count.done / count.total * 100)}%` } as CSSProperties} />{count.done}/{count.total}
         </span>}
       </div>
-      {!!blockers.length && <div className="taskmd-panel-blockers" role="status">
-        <span>等待</span>
-        {blockers.map((blocker, index) => blocker.dependencyId
-          ? <button key={`${blocker.taskId}:${blocker.dependencyId}:${index}`} type="button"
-            onClick={() => onSelect(blocker.dependencyId!)}>{state.tasks.find(item => item.id === blocker.dependencyId)?.title || blocker.dependencyId}</button>
-          : <span key={`${blocker.taskId}:${index}`}>{blocker.message}</span>)}
-      </div>}
     </header> : <>
       <h3 className="taskmd-detail-title">{displayed?.title || id}</h3>
       <div className="taskmd-detail-meta taskmd-muted"><span title={id}>{id}</span>{displayed?.repo && <span>{displayed.repo}</span>}</div>
@@ -459,23 +434,16 @@ function TaskDetail({ id, port, state, task, sessions, sessionId, agent, onSelec
         {displayed.archived
           ? <span className={`taskmd-badge taskmd-status-${displayed.status}`}>{statusLabels[displayed.status]}</span>
           : statusControl}
-        {state.ready.includes(displayed.id) && <span className="taskmd-badge taskmd-badge-ready">可开始</span>}
         {displayed.archived && <span className="taskmd-badge">已归档</span>}
         {!!count.total && <span className="taskmd-muted">子任务 {count.done}/{count.total} 完成{count.canceled > 0 && ` · ${count.canceled} 取消`}</span>}
-        {canStart && <button className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>开始任务</button>}
-        {!canStart && canComplete && <button className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('done'); }}>{count.total > 0 ? '确认完成' : '完成任务'}</button>}
-        {!canStart && !canComplete && canReopen && <button className="taskmd-primary-action is-secondary" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>重新打开</button>}
-        {!displayed.archived && terminalStatus && <button className="taskmd-secondary-action" disabled={busy || draftPending || !canArchive}
+        {canStart && <button className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('in_progress'); }}>标记进行中</button>}
+        {!canStart && canComplete && <button className="taskmd-primary-action" disabled={busy} onClick={() => { void changeStatus('done'); }}>标记完成</button>}
+        {!canStart && !canComplete && canReopen && <button className="taskmd-primary-action is-secondary" disabled={busy} onClick={() => { void changeStatus('todo'); }}>标记待办</button>}
+        {!displayed.archived && <button className="taskmd-secondary-action" disabled={busy || draftPending || !canArchive}
           title={archiveTitle} onClick={() => { void changeArchive('archive'); }}>归档</button>}
         {displayed.archived && <button className="taskmd-secondary-action" disabled={busy || draftPending || !record}
           title={draftPending ? '先保存或放弃正文、属性草稿' : undefined} onClick={() => { void changeArchive('restore'); }}>取消归档</button>}
       </div>}
-      {!compact && !!blockers.length && <section className="taskmd-box taskmd-blockers" aria-label="阻塞原因">
-        <h4>等待中</h4><ul>{blockers.map((blocker, index) => <li key={index}>
-          {blocker.dependencyId && <button onClick={() => onSelect(blocker.dependencyId!)}>{state.tasks.find(item => item.id === blocker.dependencyId)?.title || blocker.dependencyId}</button>}
-          <span> {blocker.message}</span></li>)}</ul>
-        <p className="taskmd-muted">以上为本任务或其祖先的直接依赖，只读说明，不可在此编辑继承依赖。</p>
-      </section>}
       {sessions && <TaskExecution key={id} task={displayed} capability={sessions} port={port} currentSessionId={sessionId}
         agent={agent} startBusy={busy} onStart={() => { void changeStatus('in_progress'); }} launchTask={launchTask} compact={compact} />}
       {record && <TaskProperties task={displayed} record={record} port={port} state={state} onChanged={onChanged} onSelect={onSelect} onDirty={setPropertiesDirty} bodyDirty={editorDirty} compact={compact} />}
@@ -578,9 +546,6 @@ function TaskExecution({ task, capability, port, currentSessionId, agent, startB
     </form>}
     {error && <p role="alert" className="taskmd-error">{error}</p>}
     {listError && <p role="alert" className="taskmd-error">{listError} <button onClick={() => setReload(value => value + 1)}>重试</button></p>}
-    {!compact && task.status === 'todo' && (agent?.running ?? 0) > 0 && <p className="taskmd-agent-hint" role="status">
-      关联会话已在执行，但任务仍是待办。<button disabled={startBusy} onClick={onStart}>开始任务</button>
-    </p>}
     {freshSession && <p className="taskmd-agent-hint is-fresh" role="status">
       {compact ? '有新结果' : '有会话已出结果，还没查看。'}<button disabled={busy} onClick={() => { void run(() => capability.open(freshSession.sessionId)); }}>{compact ? '查看' : '查看会话'}</button>
     </p>}

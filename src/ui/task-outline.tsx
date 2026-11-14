@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import type { Operation, State, Task } from '../types.js';
 import type { TaskGraphPort } from './port.js';
-import { executionBlockers } from '../core/graph.js';
 import { compareTasks, failure, progress, statusLabels } from './shared.js';
 import { chipLabel, type TaskAgentView } from './agent-status.js';
 import { indentOperations, moveOperations, outlineRows, type Placement } from './outline-model.js';
@@ -40,7 +39,6 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged,
   }, [selected, collapsedIds]);
   const [adding, setAdding] = useState<string | null | undefined>();
   const [title, setTitle] = useState('');
-  const [reopen, setReopen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState<string>();
@@ -50,7 +48,7 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged,
     setBusy(true); setError('');
     try {
       const result = await port.apply({ requestId: crypto.randomUUID(), baseRevision: state.revision, operations });
-      if (created) { setAdding(undefined); setTitle(''); setReopen(false); onSelect(result.ids.new!); }
+      if (created) { setAdding(undefined); setTitle(''); onSelect(result.ids.new!); }
       await onChanged();
     } catch (error) { setError(`${failure(error)}\n操作未提交，已刷新任务，请检查后重新操作。`); await onChanged(); }
     finally { setBusy(false); }
@@ -58,19 +56,15 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged,
   const move = (build: () => Operation[]) => { try { void transact(build()); } catch (error) { setError(failure(error)); } };
   const addForm = (parent: string | null) => {
     const parentTask = state.tasks.find(t => t.id === parent);
-    const ancestors: Task[] = []; let cursor = parentTask; const seen = new Set<string>();
-    while (cursor && !seen.has(cursor.id)) { seen.add(cursor.id); ancestors.push(cursor); cursor = state.tasks.find(t => t.id === cursor!.parent); }
-    const terminal = ancestors.filter(t => t.status === 'done' || t.status === 'canceled');
     return <form className="taskmd-inline-create" onSubmit={event => {
       event.preventDefault();
-      if (!title.trim() || (terminal.length > 0 && !reopen)) return;
-      const operations: Operation[] = terminal.map(t => ({ op: 'patch', id: t.id, changes: { status: 'todo' } }));
+      if (!title.trim()) return;
+      const operations: Operation[] = [];
       operations.push({ op: 'create', key: 'new', task: { title: title.trim(), parent, repo: parentTask?.repo || null } });
       void transact(operations, true);
     }}>
       <input autoFocus aria-label="新任务标题" placeholder={parent ? '子任务标题' : '根任务标题'} value={title} disabled={busy} onChange={event => setTitle(event.target.value)} />
-      {terminal.length > 0 && <label><input type="checkbox" checked={reopen} onChange={event => setReopen(event.target.checked)} />明确重新打开 {terminal.map(t => t.title).join('、')} 并添加子任务</label>}
-      <div className="taskmd-toolbar"><button disabled={busy || !title.trim() || (terminal.length > 0 && !reopen)}>添加</button><button type="button" disabled={busy} onClick={() => setAdding(undefined)}>取消</button></div>
+      <div className="taskmd-toolbar"><button disabled={busy || !title.trim()}>添加</button><button type="button" disabled={busy} onClick={() => setAdding(undefined)}>取消</button></div>
     </form>;
   };
   const placementAt = (event: DragEvent<HTMLElement>): Placement => {
@@ -82,10 +76,6 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged,
     <ul className="taskmd-tree" aria-label="任务大纲" ref={list}>{outlineRows(tasks, collapsed).map(({ task, depth }) => {
       const count = progress(state.tasks, task.id), siblings = state.tasks.filter(t => t.parent === task.parent && !t.archived).sort(compareTasks);
       const index = siblings.findIndex(t => t.id === task.id);
-      const blockers = task.status === 'todo' ? executionBlockers(state.tasks, task.id) : [];
-      const blockerNames = blockers.map(blocker => blocker.dependencyId
-        ? (state.tasks.find(item => item.id === blocker.dependencyId)?.title || blocker.dependencyId)
-        : blocker.message);
       const agentView = agent?.get(task.id);
       const agentChip = agentView ? chipLabel(agentView, agentView.statuses.length) : undefined;
       const progressPct = count.total ? Math.round(count.terminal / count.total * 100) : 0;
@@ -105,15 +95,13 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged,
           </button>
           <span className="taskmd-row-meta">
             {agentChip && <span className={`taskmd-agent-chip is-${agentView!.level}`}>{agentChip}</span>}
-            {state.ready.includes(task.id) && <span className="taskmd-ready-flag">可开始</span>}
-            {!!blockers.length && <span className="taskmd-row-lock" title={`等待：${blockerNames.join('、')}`}>🔒 {blockers.length > 1 ? `${blockers.length} 项` : blockerNames[0]}</span>}
             {count.total > 0 && <span className="taskmd-progress" title={`子任务 ${count.done}/${count.total} 完成${count.canceled > 0 ? ` · ${count.canceled} 取消` : ''}`}>
               <i style={{ '--p': `${progressPct}%` } as CSSProperties} /><span>{count.done}/{count.total}</span></span>}
             {task.repo && <span className="taskmd-tag">{task.repo}</span>}
             {task.archived && <span className="taskmd-tag">已归档</span>}
           </span>
           <details className="taskmd-row-menu"><summary aria-label={`操作 ${task.title}`}>···</summary><div>
-            <button disabled={busy || task.archived} onClick={() => { setAdding(task.id); setTitle(''); setReopen(false); setCollapsedIds(previous => previous.filter(item => item !== task.id)); }}>添加子任务</button>
+            <button disabled={busy || task.archived} onClick={() => { setAdding(task.id); setTitle(''); setCollapsedIds(previous => previous.filter(item => item !== task.id)); }}>添加子任务</button>
             <button disabled={busy || index < 1} onClick={() => move(() => moveOperations(state.tasks, task.id, siblings[index - 1]!.id, 'before'))}>上移</button>
             <button disabled={busy || index === siblings.length - 1} onClick={() => move(() => moveOperations(state.tasks, task.id, siblings[index + 1]!.id, 'after'))}>下移</button>
             <button disabled={busy || index < 1} onClick={() => move(() => indentOperations(state.tasks, task.id, false))}>缩进</button>
@@ -124,6 +112,6 @@ export function TaskOutline({ tasks, state, selected, port, onSelect, onChanged,
       </li>;
     })}</ul>
     {tasks.length === 0 && <p className="taskmd-muted">没有符合条件的任务。</p>}
-    {adding === null ? addForm(null) : <button className="taskmd-add-root" disabled={busy} onClick={() => { setAdding(null); setTitle(''); setReopen(false); }}>＋ 新建根任务</button>}
+    {adding === null ? addForm(null) : <button className="taskmd-add-root" disabled={busy} onClick={() => { setAdding(null); setTitle(''); }}>＋ 新建根任务</button>}
   </div>;
 }

@@ -139,15 +139,6 @@ export function buildGraphLayout(tasks: Task[], options: {
   const children = new Map<string | null, Task[]>();
   for (const task of context) children.set(task.parent, [...(children.get(task.parent) ?? []), task]);
   const diagnostics = [...(options.diagnostics ?? analyze(allTasks).diagnostics)];
-  // A cross-parent dependency is illegal data, not an island: say so instead of
-  // dropping the edge silently.
-  for (const task of allTasks) for (const dependency of [...new Set(task.blocked_by)]) {
-    const source = byId.get(dependency);
-    if (!source || source.parent === task.parent) continue;
-    if (diagnostics.some(item => item.taskId === task.id && (item.code === 'CROSS_PARENT_DEPENDENCY' || item.code === 'DEPENDENCY_SCOPE'))) continue;
-    diagnostics.push({ taskId: task.id, code: 'CROSS_PARENT_DEPENDENCY', severity: 'error',
-      message: `跨父依赖：${task.title} 依赖 ${source.title}；依赖只能连接同一父任务的直接子任务。` });
-  }
   const pending = [{ parent: scope, depth: 0 }];
   if (scope === null) {
     for (const parent of children.keys()) if (parent && !byId.has(parent)) pending.push({ parent, depth: 0 });
