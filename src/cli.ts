@@ -376,16 +376,12 @@ export async function main(argv = process.argv): Promise<void> {
       else await apply(state, [{ op: 'replaceMarkdown', id, content, expectedVersion: options.ifVersion! }]);
     });
 
-  command(program, 'start <id>', 'start a Ready task and bind DSH_SESSION_ID when present')
+  command(program, 'start <id>', 'mark a task in progress and optionally bind DSH_SESSION_ID')
     .option('--if-version <version>', 'require this task version')
     .action(async (id: string, options: { ifVersion?: string }) => {
     const state = await getStore().state();
     const task = taskIn(state, id);
     await assertExpected(getStore(), id, options.ifVersion);
-    if (task.archived) throw new TaskError('TASK_ARCHIVED', 'Restore the task before starting it.');
-    if (task.status !== 'in_progress' && !state.ready.includes(id)) {
-      throw new TaskError('TASK_NOT_READY', `Task ${id} is not Ready.`, 'Resolve dependencies and unfinished child tasks first.');
-    }
     const result = await getStore().apply({
       requestId: randomUUID(), baseRevision: state.revision,
       operations: [await versionPatch(getStore(), task, { status: 'in_progress' })],

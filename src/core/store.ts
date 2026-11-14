@@ -6,7 +6,7 @@ import lockfile from 'proper-lockfile';
 import { generateKeyBetween } from 'fractional-indexing';
 import { TaskError, type Task, type TaskRecord, type State, type Diagnostic, type Plan, type ApplyResult, type TaskSessionBinding, type TaskSessionBindingFilter } from '../types.js';
 import { hash, parseTask, createDocument, updateDocument, validateId } from './document.js';
-import { analyze, descendants, executionBlockers, deletionBlockers } from './graph.js';
+import { analyze, descendants, deletionBlockers } from './graph.js';
 import { configPath, resolveConfiguration, within, withConfigurationLock } from './config.js';
 import { readMetadataIndex } from './metadata-index.js';
 
@@ -14,7 +14,6 @@ const MAX_DOCUMENT = 1024 * 1024;
 const MAX_PLAN = 16 * 1024 * 1024;
 const MAX_JOURNAL = 64 * 1024 * 1024;
 const patchKeys = new Set(['title', 'status', 'parent', 'blocked_by', 'order', 'repo', 'assets', 'archived', 'body']);
-const terminal = new Set(['done', 'canceled']);
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 interface Snapshot {
@@ -102,48 +101,6 @@ async function atomicWrite(path: string, content: string): Promise<void> {
 function json<T>(source: string, label: string): T {
   try { return JSON.parse(source) as T; }
   catch { throw new TaskError('invalid_local_data', `Invalid JSON in ${label}`, 'Preserve the file and repair it before retrying.'); }
-}
-
-/**
- * Execution-rule violations of one task graph, keyed by the task they belong to.
- *
- * Entries are structural, so the same violation can be recognized before and
- * after a plan: an apply may not *introduce* one, while a graph already carrying
- * a violation (for example after a manual Markdown edit) stays repairable.
- */
-function ruleViolations(tasks: Task[]): Map<string, Map<string, Diagnostic>> {
-  const result = new Map<string, Map<string, Diagnostic>>();
-  const add = (taskId: string, key: string, issue: Diagnostic) => {
-    const entries = result.get(taskId) ?? new Map<string, Diagnostic>();
-    entries.set(key, issue);
-    result.set(taskId, entries);
-  };
-  const children = new Map<string, Task[]>();
-  for (const task of tasks) {
-    if (task.parent === null) continue;
-    children.set(task.parent, [...(children.get(task.parent) ?? []), task]);
-  }
-  for (const task of tasks) {
-    if (task.status === 'in_progress' || task.status === 'done') {
-      for (const blocker of executionBlockers(tasks, task.id)) {
-        add(task.id, `blocker\u0000${blocker.taskId}\u0000${blocker.dependencyId ?? ''}\u0000${blocker.message}`, {
-          code: task.status === 'done' ? 'not_complete' : 'execution_blocked',
-          message: blocker.message, severity: 'error', taskId: task.id,
-        });
-      }
-    }
-    if (task.status === 'done') {
-      for (const child of children.get(task.id) ?? []) {
-        if (terminal.has(child.status)) continue;
-        add(task.id, `unfinished-child\u0000${child.id}`, {
-          code: 'not_complete',
-          message: `Completed task ${task.title} (${task.id}) has unfinished child ${child.title} (${child.id}); reopen it explicitly.`,
-          severity: 'error', taskId: task.id,
-        });
-      }
-    }
-  }
-  return result;
 }
 
 /** Provider written for rows that predate the multi-provider field. */
@@ -492,7 +449,6 @@ export class Store {
         for (const target of targets) {
           const content = requireContent(target);
           const task = parseTask(content).task;
-          if (operation.op === 'archive' && !terminal.has(task.status)) throw new TaskError('task_unfinished', `Cannot archive unfinished task: ${target}`, 'Finish or cancel the subtree first.');
           contents.set(target, updateDocument(content, { archived: operation.op === 'archive' }));
         }
       }
@@ -508,98 +464,6 @@ export class Store {
       const errors = [...unresolved, ...graph.diagnostics
         .filter(issue => issue.severity === 'error' && !beforeErrors.has(issueKey(issue)))];
       if (errors.length) throw new TaskError('validation_failed', 'The final task graph is invalid.', 'Fix all reported errors and retry.', errors);
-      const previous = new Map(beforeTasks.map(task => [task.id, task]));
-      const byId = new Map(tasks.map(task => [task.id, task]));
-
-      // Canceling a task cancels every unfinished descendant atomically. Completed
-      // descendants keep their result, and dependencies never block a cancel.
-      for (const task of tasks) {
-        if (task.status !== 'canceled' || previous.get(task.id)?.status === 'canceled') continue;
-        for (const id of descendants(tasks, task.id)) {
-          const descendant = byId.get(id);
-          if (!descendant || terminal.has(descendant.status)) continue;
-          contents.set(id, updateDocument(contents.get(id)!, { status: 'canceled' }));
-        }
-      }
-      if ([...contents].some(([id, content]) => content !== snapshot.contents.get(id))) {
-        // Re-derive the tree after the cancel expansion before judging it.
-        const refreshed = allTasks();
-        byId.clear();
-        for (const task of refreshed) byId.set(task.id, task);
-      }
-
-      // Starting a leaf advances its still-todo ancestors in the same transaction.
-      // Completed, canceled or archived ancestors are never reopened implicitly.
-      // A start is only `todo -> in_progress`: an explicit reopen from a terminal
-      // state is a deliberate act, not a start, so it skips the leaf and ready
-      // checks here (final-graph rules still judge the result below).
-      const started = [...byId.values()].filter(task =>
-        task.status === 'in_progress' && previous.get(task.id)?.status === 'todo');
-      for (const task of started) {
-        if (task.archived) throw new TaskError('not_ready', `Task ${task.title} (${task.id}) is archived.`, 'Restore the task before starting it.');
-        if ([...byId.values()].some(child => child.parent === task.id)) {
-          throw new TaskError('not_ready', `Task ${task.title} (${task.id}) has child tasks and is not a leaf.`, 'Start a leaf task; its parents advance automatically.');
-        }
-        const blockers = executionBlockers([...byId.values()], task.id);
-        if (blockers.length) {
-          throw new TaskError('not_ready', `Task ${task.title} (${task.id}) is not ready to start.`,
-            'Finish its direct dependencies and reopen any completed or canceled ancestor.',
-            blockers.map(blocker => ({ code: 'not_ready', message: blocker.message, severity: 'error', taskId: blocker.taskId, dependencyId: blocker.dependencyId })));
-        }
-        const seen = new Set([task.id]);
-        let parent = task.parent;
-        while (parent && !seen.has(parent)) {
-          seen.add(parent);
-          const ancestor = byId.get(parent);
-          if (!ancestor) break;
-          if (ancestor.status === 'todo' && !ancestor.archived) {
-            contents.set(ancestor.id, updateDocument(contents.get(ancestor.id)!, { status: 'in_progress' }));
-            byId.set(ancestor.id, { ...ancestor, status: 'in_progress' });
-          }
-          parent = ancestor.parent;
-        }
-      }
-      const finalTasks = allTasks();
-      const finalById = new Map(finalTasks.map(task => [task.id, task]));
-
-      for (const task of finalTasks) {
-        const old = previous.get(task.id);
-        if (task.archived && !terminal.has(task.status)) throw new TaskError('task_unfinished', `Archived task ${task.id} is unfinished.`, 'Restore the task before reopening it.');
-        if (!task.archived && task.parent && finalById.get(task.parent)?.archived) throw new TaskError('archived_parent', `Task ${task.id} has an archived parent.`, 'Restore its ancestors first.');
-        if (task.status === old?.status) continue;
-        // `todo -> in_progress` was judged as a start above. A terminal ->
-        // in_progress transition is an explicit reopen: deliberate, and the
-        // final-graph rules below still reject a reopen that leaves the task
-        // waiting (ruleViolations) or archived (task_unfinished above).
-        if (task.status === 'done') {
-          const unfinished = finalTasks.filter(child => child.parent === task.id && !terminal.has(child.status));
-          if (unfinished.length) {
-            throw new TaskError('not_complete', `Task ${task.title} (${task.id}) has unfinished child tasks.`,
-              'Finish or cancel every child task first; a parent is never completed automatically.',
-              unfinished.map(child => ({ code: 'not_complete', message: `Unfinished child ${child.title} (${child.id}).`, severity: 'error', taskId: task.id })));
-          }
-          const blockers = executionBlockers(finalTasks, task.id);
-          if (blockers.length) {
-            throw new TaskError('not_complete', `Task ${task.title} (${task.id}) has unfinished prerequisites.`,
-              'Finish its direct dependencies and those of its ancestors first.',
-              blockers.map(blocker => ({ code: 'not_complete', message: blocker.message, severity: 'error', taskId: blocker.taskId, dependencyId: blocker.dependencyId })));
-          }
-        }
-      }
-
-      // Structural edits (moving a task, changing dependencies, reopening a
-      // dependency target) may not leave executing or completed tasks waiting.
-      // Pre-existing inconsistencies stay as diagnostics, not new rejections.
-      const existing = ruleViolations(beforeTasks);
-      const regressions: Diagnostic[] = [];
-      for (const [taskId, entries] of ruleViolations(finalTasks)) {
-        for (const [key, issue] of entries) if (!existing.get(taskId)?.has(key)) regressions.push(issue);
-      }
-      if (regressions.length) {
-        throw new TaskError('not_ready', 'The plan would leave tasks in an invalid execution state.',
-          'Reopen the reported tasks or adjust their dependencies in the same plan.', regressions);
-      }
-
       // Deletes are explicit and run after metadata/status changes. Deleting a
       // tree requires individual operations ordered from children to parents.
       for (const operation of plan.operations) {

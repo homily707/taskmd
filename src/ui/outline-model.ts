@@ -10,15 +10,6 @@ export function moveOperations(tasks: Task[], id: string, targetId: string, plac
   const parent = placement === 'inside' ? target.id : target.parent;
   if (id === targetId || (parent !== null && descendants(tasks, id).has(parent))) throw new Error('不能移动到自身或后代。');
   if (task.archived || target.archived) throw new Error('请先恢复归档任务。');
-  if (parent !== task.parent) {
-    const invalid = tasks.flatMap(t => t.blocked_by.flatMap(dep => {
-      const dependency = tasks.find(d => d.id === dep);
-      if (!dependency || (t.id !== id && dependency.id !== id)) return [];
-      const a = t.id === id ? parent : t.parent, b = dependency.id === id ? parent : dependency.parent;
-      return a === b ? [] : [`“${t.title}”依赖“${dependency.title}”`];
-    }));
-    if (invalid.length) throw new Error(`移动会产生跨父依赖：${invalid.join('；')}。请显式调整依赖，或通过 apply 联合移动两端。`);
-  }
   const siblings = tasks.filter(t => t.parent === parent && t.id !== id).sort(compareTasks);
   const index = placement === 'inside' ? siblings.length : siblings.findIndex(t => t.id === targetId) + (placement === 'after' ? 1 : 0);
   siblings.splice(index, 0, task);
