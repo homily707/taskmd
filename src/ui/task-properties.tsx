@@ -182,7 +182,7 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
   };
 
   // Direct dependencies may only point at siblings under the same direct parent;
-  // the parent field itself is editable, and moving it re-scopes this list.
+  // Informational references are available across all document groups.
   const candidates = state.tasks.filter(candidate => candidate.id !== id);
   const candidateIds = new Set(candidates.map(candidate => candidate.id));
   // Edges that are already invalid stay visible and selected: the user has to
@@ -193,7 +193,7 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
   const reopening = fields.status !== latest.record.task.status
     && terminal.includes(latest.record.task.status) && !terminal.includes(fields.status);
   const finishing = fields.status !== latest.record.task.status && fields.status === 'done';
-  const submitLabel = action === 'delete' ? '确认永久删除' : finishing ? '明确完成并保存属性' : reopening ? '明确重新打开并保存属性' : '保存属性';
+  const submitLabel = action === 'delete' ? '确认永久删除' : finishing ? '保存属性' : reopening ? '保存属性' : '保存属性';
   const operationHintIds = `taskmd-operation-hint-${id}`;
   const operationHint = compact ? [...new Set([
     bodyDirty || !!draft ? '先保存或放弃当前草稿' : '',
@@ -212,8 +212,8 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
           {state.tasks.filter(item => item.id !== id).map(item => <option key={item.id} value={item.id}>{item.title}{item.archived ? '（已归档）' : ''}</option>)}
         </select></label>
         {fields.parent && <div className="taskmd-property-action"><button type="button" onClick={() => onSelect(fields.parent!)}>{compact ? '打开父任务' : '查看父任务'}</button></div>}
-        <div className="taskmd-property-row" role="group" aria-label="直接依赖"><span>{compact ? '依赖' : '直接依赖'}</span><div>
-          {!dependencyIds.length && <p className="taskmd-muted">{compact ? '无' : '暂无直接依赖。'}</p>}
+        <div className="taskmd-property-row" role="group" aria-label="直接依赖"><span>{compact ? '关联' : '关联文档（可选）'}</span><div>
+          {!dependencyIds.length && <p className="taskmd-muted">{compact ? '无' : '暂无关联文档。'}</p>}
           {dependencyIds.map(dependencyId => {
             const valid = candidateIds.has(dependencyId);
             return <div key={dependencyId}>
@@ -222,13 +222,13 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
                   ? [...fields.blocked_by, dependencyId]
                   : fields.blocked_by.filter(value => value !== dependencyId),
               })} />{label(dependencyId)}{!valid && <span className="taskmd-error">（关联文档不存在，可解除引用）</span>}</label>
-              {!compact && <button type="button" onClick={() => onSelect(dependencyId)}>查看依赖任务</button>}
+              {!compact && <button type="button" onClick={() => onSelect(dependencyId)}>查看关联文档</button>}
             </div>;
           })}
           <select aria-label="添加依赖" value="" onChange={event => {
             if (event.target.value) edit({ blocked_by: [...fields.blocked_by, event.target.value] });
           }}>
-            <option value="">{compact ? '添加依赖' : '添加依赖…'}</option>
+            <option value="">{compact ? '添加关联' : '添加关联…'}</option>
             {candidates.filter(candidate => !fields.blocked_by.includes(candidate.id))
               .map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.title}</option>)}
           </select>

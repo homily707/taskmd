@@ -68,7 +68,7 @@ function TaskCard({ data, selected }: NodeProps<TaskNode>) {
     </button>
     <small className="taskmd-graph-note" title={data.diagnostics.join('\n')}>
       {data.diagnostics.length ? '⚠ 关系异常，见图诊断'
-        : data.hiddenDependencies ? `含 ${data.hiddenDependencies} 个当前图外的前置任务`
+        : data.hiddenDependencies ? `含 ${data.hiddenDependencies} 个当前图外的关联文档`
         : data.ready ? '待办'
         : data.waiting || (data.context ? '上层任务（筛选上下文）' : ' ')}
     </small>
@@ -197,7 +197,7 @@ export function TaskGraph({ tasks, ready, selected, onSelect, state, initialScop
     // Solid arrows: direct sibling dependencies only, predecessor -> successor.
     for (const edge of frame.dependencies) edges.push({ id: `dependency:${edge.source}:${edge.target}`, ...edge,
       type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#557ee8', strokeWidth: 2 },
-      ariaLabel: `${byId.get(edge.source)?.title} 是 ${byId.get(edge.target)?.title} 的前置任务` });
+      ariaLabel: `${byId.get(edge.source)?.title} 与 ${byId.get(edge.target)?.title} 关联` });
   }
   // One dashed guide per expanded parent: membership, never ordering.
   for (const guide of layout.guides) edges.push({ id: `children:${guide.source}`, ...guide, type: 'smoothstep',
@@ -214,7 +214,7 @@ export function TaskGraph({ tasks, ready, selected, onSelect, state, initialScop
       {breadcrumbs.map(task => <span key={task.id}><span aria-hidden="true"> / </span>
         <button onClick={() => enter(task.id)} aria-current={scope === task.id ? 'page' : undefined}>{task.title}</button></span>)}
     </nav>
-    <p className="taskmd-graph-legend"><span>实线 → 前置任务到后续任务</span><span>虚线 ⇢ 展开子图归属</span><span>孤岛没有依赖顺序</span></p>
+    <p className="taskmd-graph-legend"><span>实线 → 文档间的旧关联</span><span>虚线 ⇢ 展开子图归属</span><span>不同文档没有执行顺序约束</span></p>
     {!!layout.diagnostics.length && <details className="taskmd-graph-diagnostics" open>
       <summary>图诊断（{layout.diagnostics.length}）</summary>
       <ul>{layout.diagnostics.map((item, index) => <li key={`${item.code}:${item.taskId ?? ''}:${index}`}>

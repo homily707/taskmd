@@ -71,7 +71,7 @@ export function TaskAssets({ record, state, port, onChanged }: {
     finally { locked.current = false; setRemoving(false); }
   };
   if (!record.task.assets.length) return null;
-  return <details className="taskmd-box taskmd-assets" aria-label="资源引用"><summary>资源引用（{record.task.assets.length}）</summary>
+  return <details className="taskmd-box taskmd-assets" aria-label="资源引用"><summary>旧资源引用（{record.task.assets.length}）</summary><p className="taskmd-muted">新资料建议直接在 Markdown 正文中使用相对链接。此处保留旧任务的资源预览和解除关联能力。</p>
     {error && <p className="taskmd-error" role="alert">{error}</p>}
     {record.task.assets.map((asset, index) => <AssetRow key={`${record.task.id}:${record.version}:${index}`} taskId={record.task.id}
       asset={asset} index={index} port={port} removing={removing} onRemove={remove} />)}

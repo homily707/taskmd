@@ -324,7 +324,7 @@ export async function main(argv = process.argv): Promise<void> {
       emit({ schemaVersion: 1, revision: state.revision, ...record });
     });
 
-  command(program, 'ready', 'list tasks ready to start').action(async () => {
+  command(program, 'ready', 'list todo documents (compatibility alias)').action(async () => {
     const state = json() ? await getStore().state() : await getStore().metadataState();
     const ready = new Set(state.ready);
     const tasks = state.tasks.filter((task) => ready.has(task.id)).sort(compareTasks);
@@ -431,7 +431,7 @@ export async function main(argv = process.argv): Promise<void> {
     });
 
   // An argument-bearing parent command is ambiguous in commander; parse the approved layout directly.
-  command(program, 'deps <id> <action> <ids...>', 'deps <id> add|remove <dependency IDs...>')
+  command(program, 'deps <id> <action> <ids...>', 'manage informational document references (legacy blocked_by field)')
     .option('--if-version <version>', 'require this task version')
     .action(async (id: string, action: string, ids: string[], options: { ifVersion?: string }) => {
       if (action !== 'add' && action !== 'remove') throw new TaskError('INVALID_ARGUMENT', 'Dependency action must be add or remove.');
@@ -465,7 +465,7 @@ export async function main(argv = process.argv): Promise<void> {
     });
   }
 
-  command(program, 'delete <id>', 'delete a canceled or archived task without dependencies or children')
+  command(program, 'delete <id>', 'delete a document with no children, regardless of status or links')
     .option('--if-version <version>', 'require this task version')
     .action(async (id: string, options: { ifVersion?: string }) => {
       const state = await getStore().state();
