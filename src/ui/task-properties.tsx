@@ -14,7 +14,6 @@ const fieldsOf = ({ title, repo, parent, blocked_by, status }: Task): Properties
   ({ title, repo, parent, blocked_by: [...blocked_by], status });
 const draftKey = (id: string) => `taskmd:properties-draft:${id}`;
 const statuses: Record<TaskStatus, string> = { todo: '待办', in_progress: '进行中', done: '已完成', canceled: '已取消' };
-const terminal: TaskStatus[] = ['done', 'canceled'];
 
 function validFields(value: unknown): value is Properties {
   if (!value || typeof value !== 'object') return false;
@@ -190,10 +189,7 @@ function PropertiesEditor({ task, record, port, state, onChanged, onSelect, onDi
   const dependencyIds = [...new Set(fields.blocked_by)];
   const label = (target: string) => state.tasks.find(item => item.id === target)?.title || target;
   const missingParent = fields.parent !== null && !state.tasks.some(item => item.id === fields.parent && item.id !== id);
-  const reopening = fields.status !== latest.record.task.status
-    && terminal.includes(latest.record.task.status) && !terminal.includes(fields.status);
-  const finishing = fields.status !== latest.record.task.status && fields.status === 'done';
-  const submitLabel = action === 'delete' ? '确认永久删除' : finishing ? '保存属性' : reopening ? '保存属性' : '保存属性';
+  const submitLabel = action === 'delete' ? '确认永久删除' : '保存属性';
   const operationHintIds = `taskmd-operation-hint-${id}`;
   const operationHint = compact ? [...new Set([
     bodyDirty || !!draft ? '先保存或放弃当前草稿' : '',

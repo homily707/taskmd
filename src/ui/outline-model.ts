@@ -3,13 +3,12 @@ import type { Operation, Task } from '../types.js';
 import { compareTasks, descendants } from './shared.js';
 
 export type Placement = 'before' | 'after' | 'inside';
-/** Validate both incoming and outgoing edges against the proposed final parent. */
+/** Move a document in the outline; informational references do not constrain placement. */
 export function moveOperations(tasks: Task[], id: string, targetId: string, placement: Placement): Operation[] {
   const task = tasks.find(t => t.id === id), target = tasks.find(t => t.id === targetId);
   if (!task || !target) throw new Error('任务已不存在，请刷新后重试。');
   const parent = placement === 'inside' ? target.id : target.parent;
   if (id === targetId || (parent !== null && descendants(tasks, id).has(parent))) throw new Error('不能移动到自身或后代。');
-  if (task.archived || target.archived) throw new Error('请先恢复归档任务。');
   const siblings = tasks.filter(t => t.parent === parent && t.id !== id).sort(compareTasks);
   const index = placement === 'inside' ? siblings.length : siblings.findIndex(t => t.id === targetId) + (placement === 'after' ? 1 : 0);
   siblings.splice(index, 0, task);

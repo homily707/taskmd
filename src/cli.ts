@@ -98,7 +98,6 @@ async function position(
 ): Promise<{ order: string; operations: Operation[] }> {
   if (parent) {
     const destination = taskIn(state, parent);
-    if (destination.archived) throw new TaskError('ARCHIVED_PARENT', 'Cannot move or create under an archived task.');
   }
   if (options.before && options.after) throw new TaskError('INVALID_ARGUMENT', 'Use only one of --before and --after.');
   const siblings = state.tasks.filter((task) => task.parent === parent && !task.archived && task.id !== options.moving?.id).sort(compareTasks);
@@ -424,8 +423,7 @@ export async function main(argv = process.argv): Promise<void> {
       const state = await getStore().state();
       const task = taskIn(state, id);
       await assertExpected(getStore(), id, options.ifVersion);
-      if (task.archived) throw new TaskError('TASK_ARCHIVED', 'Restore the task before moving it.');
-      const parent = options.root ? null : options.parent ?? task.parent;
+        const parent = options.root ? null : options.parent ?? task.parent;
       const placement = await position(getStore(), state, parent, { moving: task, before: options.before, after: options.after });
       await apply(state, [...placement.operations, await versionPatch(getStore(), task, { parent, order: placement.order })]);
     });

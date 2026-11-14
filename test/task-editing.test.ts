@@ -486,7 +486,7 @@ test('an invalid existing dependency stays visible and removable', async t => {
   assert.deepEqual((plans[0]!.operations[0] as { changes: { blocked_by: string[] } }).changes, { blocked_by: [] });
 });
 
-test('status offers the four states and labels explicit completion and reopening', async t => {
+test('status offers all four independent document labels', async t => {
   const open = makeTask();
   const tasks = [open];
   const { port } = portWith({
@@ -499,14 +499,14 @@ test('status offers the four states and labels explicit completion and reopening
     ['todo', 'in_progress', 'done', 'canceled', 'delete']);
 
   await act(async () => { field(view, '任务状态').props.onChange({ target: { value: 'done' } }); });
-  assert.ok(hasButton(view, '明确完成并保存属性'));
+  assert.ok(hasButton(view, '保存属性'));
 
   const done = makeTask({ status: 'done' });
   await rerender(view, createElement(TaskProperties, {
     task: done, record: makeRecord(done, 'v2'), port, state: makeState([done], 'r2'), onChanged: async () => {}, onSelect: () => {},
   }));
   await act(async () => { field(view, '任务状态').props.onChange({ target: { value: 'in_progress' } }); });
-  assert.ok(hasButton(view, '明确重新打开并保存属性'));
+  assert.ok(hasButton(view, '保存属性'));
 });
 
 test('a property conflict keeps the edit and retries only the changed fields', async t => {
