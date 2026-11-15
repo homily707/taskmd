@@ -178,6 +178,21 @@ async function setup(ctx: ClientContext): Promise<void> {
   // order; a session click also retires a queued task-panel request.
   let activationToken = 0;
 
+  // The session whose surface is on screen, fanned out to the left sidebar so
+  // its row highlight follows the conversation instead of the last manual pick.
+  const mountedListeners = new Set<() => void>();
+  let mountedSessionId: string | undefined;
+  const getMountedSessionId = () => mountedSessionId;
+  const subscribeMountedSessionId = (listener: () => void) => {
+    mountedListeners.add(listener);
+    return () => { mountedListeners.delete(listener); };
+  };
+  const setMountedSessionId = (next: string | undefined) => {
+    if (mountedSessionId === next) return;
+    mountedSessionId = next;
+    for (const notify of [...mountedListeners]) notify();
+  };
+
   ctx.effect(() => {
     const running = watchChanges(ctx, remote, lifetime, invalidate);
     return async () => {
@@ -276,6 +291,7 @@ async function setup(ctx: ClientContext): Promise<void> {
     const pending = useSyncExternalStore(subscribePending, getPending, getPending);
     const [retryTick, setRetryTick] = useState(0);
     const attempts = useRef(new Map<number, number>());
+    useEffect(() => { setMountedSessionId(mounted); }, [mounted]);
     useEffect(() => {
       if (!pending || pending.sessionId !== mounted) return;
       let retry: number | undefined;
@@ -348,7 +364,8 @@ async function setup(ctx: ClientContext): Promise<void> {
   let sidebarSlotMounted = false;
   let disposeTaskSidebar: Dispose | undefined;
   function TaskBrowser({ wide, expandSidebar }: { wide: boolean; expandSidebar(): void }) {
-    return <TaskmdLeftSidebar port={port} sessions={sessions} wide={wide}
+    const activeSessionId = useSyncExternalStore(subscribeMountedSessionId, getMountedSessionId, getMountedSessionId);
+    return <TaskmdLeftSidebar port={port} sessions={sessions} wide={wide} activeSessionId={activeSessionId}
       expandSidebar={expandSidebar} showSessions={() => setSidebarMode('sessions')}
       onActivateSession={activateSession} onOpenTask={openTaskPanel} />;
   }

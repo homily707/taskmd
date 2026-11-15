@@ -100,12 +100,12 @@ test('task row enters its first Session; a sessionless task opens Markdown', asy
   assert.deepEqual(openedTasks, ['b']);
   assert.deepEqual(openedSessions, ['s2']);
 });
-test('left sidebar shows every active Session, including unbound ones, and tints the task badge', async t => {
+test('left sidebar shows the five most recently updated Sessions, including unbound ones', async t => {
   const f = fixture([record('a')]);
   const statuses = new Map([
-    ['s1', { sessionId: 's1', running: true }],
-    ['s2', { sessionId: 's2', running: false, pending: 'approval' as const }],
-    ['s3', { sessionId: 's3', running: false, fresh: true, title: '不在任务里的会话' }],
+    ['s1', { sessionId: 's1', running: true, updatedAt: 10 }],
+    ['s2', { sessionId: 's2', running: false, pending: 'approval' as const, updatedAt: 20 }],
+    ['s3', { sessionId: 's3', running: false, fresh: true, title: '不在任务里的会话', updatedAt: 30 }],
   ]);
   const opened: string[] = [];
   const capability = sessions({
@@ -117,8 +117,8 @@ test('left sidebar shows every active Session, including unbound ones, and tints
     open: async id => { opened.push(id); },
   });
   const view = await mount(t, createElement(TaskmdLeftSidebar, { port: f.port, sessions: capability, wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {} }));
-  // The cross-task block lists all three active Sessions, including the one no Task binds.
-  assert.match(text(view.root), /活跃会话/);
+  // The cross-task block lists all three Sessions, including the one no Task binds.
+  assert.match(text(view.root), /最近会话/);
   assert.match(text(view.root), /不在任务里的会话/);
   assert.ok(view.root.findAllByProps({ className: 'taskmd-session-dot is-attention' }).length > 0);
   assert.ok(view.root.findAllByProps({ className: 'taskmd-session-dot is-running' }).length > 0);
@@ -130,19 +130,30 @@ test('left sidebar shows every active Session, including unbound ones, and tints
   const badge = view.root.findAllByType('button').find(node => node.props.className === 'taskmd-session-badge is-attention')!;
   assert.equal(text(badge), '⚠ 2');
 });
-test('active sessions fall back to the three most recent idle Sessions when none run', async t => {
+test('recent Sessions are capped at five rows sorted by latest update', async t => {
   const f = fixture([record('a')]);
   const statuses = new Map([
     ['s1', { sessionId: 's1', running: false, title: '最旧会话', updatedAt: 100 }],
-    ['s2', { sessionId: 's2', running: false, title: '第三近会话', updatedAt: 200 }],
-    ['s3', { sessionId: 's3', running: false, title: '次近会话', updatedAt: 300 }],
-    ['s4', { sessionId: 's4', running: false, title: '最近会话', updatedAt: 400 }],
+    ['s2', { sessionId: 's2', running: false, title: '第五近会话', updatedAt: 200 }],
+    ['s3', { sessionId: 's3', running: false, title: '第四近会话', updatedAt: 300 }],
+    ['s4', { sessionId: 's4', running: false, title: '第三近会话', updatedAt: 400 }],
+    ['s5', { sessionId: 's5', running: false, title: '次近会话', updatedAt: 500 }],
+    ['s6', { sessionId: 's6', running: false, title: '最近会话', updatedAt: 600 }],
   ]);
   const capability = sessions({ statuses: () => ({ get: () => statuses, subscribe: () => () => {} }) });
   const view = await mount(t, createElement(TaskmdLeftSidebar, { port: f.port, sessions: capability, wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {} }));
   const copy = text(view.root);
-  assert.match(copy, /活跃会话/); assert.match(copy, /最近会话/); assert.match(copy, /次近会话/); assert.match(copy, /第三近会话/);
+  assert.match(copy, /最近会话/); assert.match(copy, /最近会话/); assert.match(copy, /次近会话/); assert.match(copy, /第三近会话/); assert.match(copy, /第四近会话/); assert.match(copy, /第五近会话/);
   assert.doesNotMatch(copy, /最旧会话/);
+});
+test('entering a Session highlights its bound task row', async t => {
+  const f = fixture([record('a'), record('b')]);
+  const capability = sessions({ list: async () => [{ taskId: 'b', sessionId: 's-live', createdAt: '2026-01-01T00:00:00Z' }] });
+  const view = await mount(t, createElement(TaskmdLeftSidebar, { port: f.port, sessions: capability, wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {}, activeSessionId: 's-live' }));
+  const rowB = view.root.findAllByProps({ className: 'taskmd-nav-hit' }).find(node => node.props['aria-label'].includes('Task b'))!;
+  assert.equal(rowB.props['aria-current'], 'true');
+  const rowA = view.root.findAllByProps({ className: 'taskmd-nav-hit' }).find(node => node.props['aria-label'].includes('Task a'))!;
+  assert.equal(rowA.props['aria-current'], undefined);
 });
 test('body draft survives navigation and external conflict without creating Session', async t => {
   const f = fixture([record('a'), record('b')]); let creates = 0;

@@ -33,9 +33,10 @@ interface SessionPickerState {
  * the small Session badge opens a floating list to the right of the column.
  * Agent state is display-only; it never writes task status or completion.
  */
-export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenTask, onActivateSession, showSessions }: {
+export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenTask, onActivateSession, showSessions, activeSessionId }: {
   port: TaskPort; sessions: SessionCapability; wide: boolean; expandSidebar(): void;
   onOpenTask(id: string): void; onActivateSession?(taskId: string, sessionId: string): Promise<void>; showSessions(): void;
+  activeSessionId?: string;
 }) {
   const { state, error, refresh } = useTasks(port);
   const agent = useAgentView(sessions, port);
@@ -58,6 +59,15 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
   const rows = useMemo(() => outlineRows(state?.tasks ?? [], collapsed, archived, query), [state, collapsed, archived, query]);
   const taskCount = state?.tasks.filter(record => !record.task.archived).length;
   const homeName = state?.settings.homeDirectory.split(/[\\/]/).filter(Boolean).pop();
+  // Entering a Session owns the row highlight: its bound Task, if any, is the
+  // selection. A manual pick stays until some Session takes over.
+  let activeTaskId: string | undefined;
+  if (activeSessionId) {
+    for (const [taskId, list] of agent.bindingsByTask) {
+      if (list.some(binding => binding.sessionId === activeSessionId)) { activeTaskId = taskId; break; }
+    }
+  }
+  const highlighted = activeTaskId ?? selected;
 
   const clearHover = useCallback(() => {
     if (hoverOpen.current !== undefined) { window.clearTimeout(hoverOpen.current); hoverOpen.current = undefined; }
@@ -184,13 +194,13 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
           const view = agent.views.get(task.id);
           const chip = view ? chipLabel(view, view.statuses.length) : undefined;
           return <li key={task.id} style={{ '--task-depth': depth } as CSSProperties}>
-            <div className={`taskmd-nav-row${selected === task.id ? ' is-selected' : ''}${busy === task.id ? ' is-busy' : ''}`}
+            <div className={`taskmd-nav-row${highlighted === task.id ? ' is-selected' : ''}${busy === task.id ? ' is-busy' : ''}`}
               onMouseEnter={event => { if (bindings.length) hoverPicker(task.id, event.currentTarget); }}
               onMouseLeave={scheduleClose}>
               <button type="button" className="taskmd-nav-hit"
                 aria-label={bindings.length ? `打开 ${task.title}，进入第一个会话` : `打开 ${task.title}`}
                 title={`${task.title} · ${statusLabels[task.status]}`}
-                aria-current={selected === task.id ? 'true' : undefined}
+                aria-current={highlighted === task.id ? 'true' : undefined}
                 disabled={busy === task.id}
                 onClick={() => void activateTask(state!.tasks.find(record => record.task.id === task.id)!)} />
               {hasChildren
@@ -231,11 +241,10 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
 }
 
 /**
- * Every Session in this Client that is waiting for the user, carrying an
- * unread result, or running — regardless of Task bindings. This is the
- * cross-task inbox that makes a background Session visible without opening
- * the native list. Opening a Session clears its fresh flag, so it leaves on
- * its own once the user has looked at it.
+ * The five most recently updated Sessions in this Client, regardless of Task
+ * bindings or activity. Active Sessions keep updating, so they stay near the
+ * top naturally; the pills in the header still summarize every Session that
+ * waits on the user, runs, or carries an unread result.
  */
 function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
   const statusSource = sessions.statuses?.();
@@ -244,55 +253,49 @@ function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
   const [tick, setTick] = useState(0);
   const [error, setError] = useState('');
   useEffect(() => statusSource?.subscribe(() => setTick(value => value + 1)), [statusSource]);
-  const active = useMemo(() => {
+  const summary = useMemo(() => {
     if (!statusSource) return undefined;
-    const attention: SessionStatus[] = [];
-    const fresh: SessionStatus[] = [];
-    const running: SessionStatus[] = [];
-    const recent: SessionStatus[] = [];
+    const visible: SessionStatus[] = [];
+    let attention = 0, running = 0, fresh = 0;
     for (const status of statusSource.get().values()) {
-      if (status.archived) continue;
-      if (status.pending) attention.push(status);
-      else if (status.fresh) fresh.push(status);
-      else if (status.running) running.push(status);
-      else if (!status.blank && !status.missing) recent.push(status);
+      if (status.archived || status.missing || status.blank) continue;
+      visible.push(status);
+      if (status.pending) attention += 1;
+      else if (status.running) running += 1;
+      else if (status.fresh) fresh += 1;
     }
-    recent.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-    return { attention, fresh, running, recent };
+    visible.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    return { visible, attention, running, fresh };
   }, [statusSource, tick]);
   const open = async (sessionId: string) => {
     setError('');
     try { await sessions.open(sessionId); }
     catch (reason) { setError(failure(reason)); }
   };
-  if (!statusSource || !active) return null;
-  // With nothing running, keep the block useful by filling it out with the
-  // most recently touched idle Sessions (three rows total) instead of hiding.
-  const activeRows = [...active.attention, ...active.fresh, ...active.running];
-  const supplement = active.running.length === 0
-    ? active.recent.slice(0, Math.max(0, 3 - activeRows.length))
-    : [];
-  const rows = [...activeRows, ...supplement];
+  if (!statusSource || !summary) return null;
+  const rows = summary.visible.slice(0, 5);
   if (!rows.length) return null;
 
-  return <section className="taskmd-left-active" aria-label="活跃会话">
+  return <section className="taskmd-left-active" aria-label="最近会话">
     <div className="taskmd-left-active-head">
-      <button type="button" className="taskmd-nav-fold" aria-label={collapsed ? '展开活跃会话' : '折叠活跃会话'} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? '▸' : '▾'}</button>
-      <strong>活跃会话</strong>
-      {active.attention.length > 0 && <span className="taskmd-agent-pill is-attention" title="等待你处理的会话数">⚠ {active.attention.length}</span>}
-      {active.running.length > 0 && <span className="taskmd-agent-pill is-running" title="运行中的会话数">● {active.running.length}</span>}
-      {active.fresh.length > 0 && <span className="taskmd-agent-pill is-fresh" title="有新结果的会话数">✓ {active.fresh.length}</span>}
+      <button type="button" className="taskmd-nav-fold" aria-label={collapsed ? '展开最近会话' : '折叠最近会话'} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? '▸' : '▾'}</button>
+      <strong>最近会话</strong>
+      {summary.attention > 0 && <span className="taskmd-agent-pill is-attention" title="等待你处理的会话数">⚠ {summary.attention}</span>}
+      {summary.running > 0 && <span className="taskmd-agent-pill is-running" title="运行中的会话数">● {summary.running}</span>}
+      {summary.fresh > 0 && <span className="taskmd-agent-pill is-fresh" title="有新结果的会话数">✓ {summary.fresh}</span>}
       <span className="taskmd-muted" title={`共 ${rows.length} 个`}>{rows.length}</span>
     </div>
     {error && <p className="taskmd-error" role="alert">{error}</p>}
     {!collapsed && <div className="taskmd-left-active-list">
       {rows.map(status => {
-        const isRecent = supplement.includes(status);
+        const meta = status.pending ? '等你处理' : status.fresh ? '有新结果'
+          : status.running ? (status.runningSubagents ? `运行 · ${status.runningSubagents} 子代理` : '运行中')
+          : `最近 · ${relativeActivity(status, Date.now())}`;
         return <button type="button" key={status.sessionId} className="taskmd-active-session"
           title={status.sessionId} onClick={() => void open(status.sessionId)}>
           <span className={`taskmd-session-dot is-${levelOf(status)}`} aria-hidden="true" />
           <span className="taskmd-active-session-title">{sessions.title?.(status.sessionId) || status.title || status.sessionId}</span>
-          <span className="taskmd-active-session-meta">{isRecent ? `最近 · ${relativeActivity(status, Date.now())}` : status.pending ? '等你处理' : status.fresh ? '有新结果' : status.runningSubagents ? `运行 · ${status.runningSubagents} 子代理` : '运行中'}</span>
+          <span className="taskmd-active-session-meta">{meta}</span>
         </button>;
       })}
     </div>}
