@@ -122,6 +122,8 @@ interface WorkspaceService {
 /** One row of the session controller's `sessions.list` snapshot. */
 interface SessionListEntry {
   cwd?: string;
+  parentId?: string;
+  origin?: 'subagent';
   retainedBy?: { mainView?: number };
   running?: boolean;
   blank?: boolean;
@@ -203,6 +205,7 @@ function collectSessionStatuses(scope: DshAdapterScope): Map<string, SessionStat
       ...(pending ? { pending } : {}),
       ...(live?.completionUnread ? { fresh: true } : {}),
       ...(entry?.blank ? { blank: true } : {}),
+      ...(entry?.parentId !== undefined || entry?.origin === 'subagent' ? { child: true } : {}),
       ...(archived.has(id) ? { archived: true } : {}),
       // Only a ready catalog may claim absence; an unready one "cannot tell".
       ...(catalog?.phase === 'ready' && !entry && !archived.has(id) ? { missing: true } : {}),

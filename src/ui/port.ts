@@ -37,6 +37,8 @@ export interface SessionStatus {
   running: boolean;
   fresh?: boolean;
   blank?: boolean;
+  /** Fork or subagent Session; excluded from the recent-Session list. */
+  child?: boolean;
   archived?: boolean;
   missing?: boolean;
   title?: string;

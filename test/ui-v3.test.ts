@@ -151,6 +151,18 @@ test('left sidebar shows the five most recently updated Sessions, including unbo
   const badge = view.root.findAllByType('button').find(node => node.props.className === 'taskmd-session-badge is-attention')!;
   assert.equal(text(badge), '⚠ 2');
 });
+test('recent Sessions exclude child Sessions', async t => {
+  const f = fixture([record('a')]);
+  const statuses = new Map([
+    ['root', { sessionId: 'root', running: false, title: '顶层会话', updatedAt: 10 }],
+    ['child', { sessionId: 'child', running: false, title: '子会话', child: true, updatedAt: 20 }],
+  ]);
+  const capability = sessions({ statuses: () => ({ get: () => statuses, subscribe: () => () => {} }) });
+  const view = await mount(t, createElement(TaskmdLeftSidebar, { port: f.port, sessions: capability, wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {} }));
+  const copy = text(view.root);
+  assert.match(copy, /顶层会话/);
+  assert.doesNotMatch(copy, /子会话/);
+});
 test('recent Sessions are capped at five rows sorted by latest update', async t => {
   const f = fixture([record('a')]);
   const statuses = new Map([

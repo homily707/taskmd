@@ -26,6 +26,44 @@ function harness(bindFailure = false) {
   return { ...createDshAdapters(scope, new AbortController()), created, prompts, bindings };
 }
 
+test('status source marks forks and subagents as child sessions', async () => {
+  const remote = {
+    bind: async () => ({ ok: true, value: undefined }),
+    bindings: async () => ({ ok: true, value: [] }),
+  } as unknown as TaskmdRemote;
+  const scope: DshAdapterScope = {
+    get: name => {
+      if (name === 'remote.taskmd') return remote;
+      if (name === 'sessions') return {
+        list: {
+          getSnapshot: () => ({
+            phase: 'ready',
+            byId: {
+              root: { displayTitle: 'Root' },
+              fork: { displayTitle: 'Fork', parentId: 'root' },
+              sub: { displayTitle: 'Sub', origin: 'subagent' },
+            },
+          }),
+          subscribe: () => () => {},
+        },
+      };
+      return undefined;
+    },
+    sessions: { create: async () => 'created' },
+    uiWorkspace: { openSession() {} },
+    remote: {} as DshAdapterScope['remote'],
+  };
+  const adapters = createDshAdapters(scope, new AbortController());
+  try {
+    const statuses = adapters.sessions.statuses!().get();
+    assert.equal(statuses.get('root')?.child, undefined);
+    assert.equal(statuses.get('fork')?.child, true);
+    assert.equal(statuses.get('sub')?.child, true);
+  } finally {
+    adapters.clear();
+  }
+});
+
 test('a forked Session inherits the task binding of its source', async () => {
   const bound: unknown[] = [];
   const remote = {

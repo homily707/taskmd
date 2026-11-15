@@ -242,9 +242,11 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
 
 /**
  * The five most recently updated Sessions in this Client, regardless of Task
- * bindings or activity. Active Sessions keep updating, so they stay near the
- * top naturally; the pills in the header still summarize every Session that
- * waits on the user, runs, or carries an unread result.
+ * bindings or activity. Child Sessions (forks/subagents) are excluded, so
+ * this is the five most recent non-child Sessions. Active Sessions keep
+ * updating, so they stay near the top naturally; the pills in the header
+ * summarize every visible Session that waits on the user, runs, or carries an
+ * unread result.
  */
 function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
   const statusSource = sessions.statuses?.();
@@ -258,7 +260,7 @@ function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
     const visible: SessionStatus[] = [];
     let attention = 0, running = 0, fresh = 0;
     for (const status of statusSource.get().values()) {
-      if (status.archived || status.missing || status.blank) continue;
+      if (status.archived || status.missing || status.blank || status.child) continue;
       visible.push(status);
       if (status.pending) attention += 1;
       else if (status.running) running += 1;
