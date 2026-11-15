@@ -379,11 +379,6 @@ function SessionPopover({ taskTitle, anchor, pinned, bindings, statuses, session
       if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
       else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
     }}>
-    <div className="taskmd-session-popover-head">
-      <span className="taskmd-session-popover-title" title={taskTitle}>{taskTitle}</span>
-      <span className="taskmd-muted">{bindings.length}</span>
-      <button type="button" className="taskmd-search-clear" aria-label="关闭会话列表" onClick={() => onClose(true)}>×</button>
-    </div>
     {bindings.map(binding => {
       const status = statuses.get(binding.sessionId);
       const level = status ? levelOf(status) : 'idle';

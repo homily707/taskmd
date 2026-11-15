@@ -165,11 +165,6 @@ export const styles = `
 .taskmd-session-popover{--tm-text:var(--dsw-alias-label-primary,CanvasText);--tm-muted:var(--dsw-alias-label-secondary,color-mix(in srgb,CanvasText 62%,transparent));--tm-border:var(--dsw-alias-border-l1,color-mix(in srgb,CanvasText 15%,transparent));--tm-border-strong:var(--dsw-alias-border-l2,color-mix(in srgb,CanvasText 28%,transparent));--tm-accent:var(--dsw-alias-brand-primary,#557ee8);--tm-ok:var(--dsw-alias-state-success-primary,#2e9e5b);--tm-warn:var(--dsw-alias-state-warn-primary,#d98a00);--tm-run:#2f7de1;--tm-surface:var(--dsw-alias-bg-layer-1,Canvas);--tm-hover:color-mix(in srgb,CanvasText 6%,transparent);position:fixed;z-index:90;inset:auto;margin:0;overflow:auto;background:var(--tm-surface);color:var(--tm-text);border:1px solid var(--tm-border-strong);border-radius:9px;box-shadow:0 10px 32px rgb(0 0 0/.22);padding:4px;font:12px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-sizing:border-box}
 .taskmd-session-popover *{box-sizing:border-box}
 .taskmd-session-popover button{font:inherit;color:inherit;cursor:pointer}
-.taskmd-session-popover-head{display:flex;align-items:center;gap:6px;padding:2px 2px 4px;border-bottom:1px solid var(--tm-border);margin-bottom:2px;min-width:0}
-.taskmd-session-popover-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:11.5px}
-.taskmd-session-popover-head .taskmd-muted{flex:none;font-size:10px;color:var(--tm-muted)}
-.taskmd-session-popover-head .taskmd-search-clear{width:20px;min-width:20px;height:20px;min-height:20px;padding:0;border:0;background:transparent;color:var(--tm-muted);font-size:14px;display:grid;place-items:center}
-.taskmd-session-popover-head .taskmd-search-clear:hover{background:var(--tm-hover);color:var(--tm-text)}
 .taskmd-session-popover-item{display:flex;align-items:center;gap:6px;width:100%;min-width:0;border:0;border-radius:6px;padding:4px 4px;margin:1px 0;background:transparent;text-align:start;min-height:26px}
 .taskmd-session-popover-item:hover{background:var(--tm-hover)}
 .taskmd-session-popover-item:disabled{opacity:.5;cursor:default}
