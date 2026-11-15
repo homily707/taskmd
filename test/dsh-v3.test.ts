@@ -64,59 +64,6 @@ test('status source marks forks and subagents as child sessions', async () => {
   }
 });
 
-test('a forked Session inherits the task binding of its source', async () => {
-  const bound: unknown[] = [];
-  const remote = {
-    bind: async (...args: unknown[]) => { bound.push(args); return { ok: true, value: undefined }; },
-    bindings: async () => ({ ok: true, value: [{ taskId: 'task', sessionId: 'parent', createdAt: '2026-01-01T00:00:00Z' }] }),
-  } as unknown as TaskmdRemote;
-  const callbacks: string[] = [];
-  const service: DshAdapterScope['sessions'] = {
-    create: async () => 'created',
-    fork: async options => {
-      options.onCreated?.('child');
-      return 'child';
-    },
-  };
-  const scope: DshAdapterScope = {
-    get: name => name === 'remote.taskmd' ? remote : undefined,
-    sessions: service,
-    uiWorkspace: { openSession() {} },
-    remote: {} as DshAdapterScope['remote'],
-  };
-  const adapters = createDshAdapters(scope, new AbortController());
-  assert.equal(await service.fork!({ sessionId: 'parent', onCreated: id => callbacks.push(id) }), 'child');
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.deepEqual(callbacks, ['child']);
-  assert.deepEqual(bound, [['task', 'child']]);
-  adapters.clear();
-});
-
-test('a fork that fails workspace attach still binds its created child', async () => {
-  const bound: unknown[] = [];
-  const remote = {
-    bind: async (...args: unknown[]) => { bound.push(args); return { ok: true, value: undefined }; },
-    bindings: async () => ({ ok: true, value: [{ taskId: 'task', sessionId: 'parent', createdAt: '2026-01-01T00:00:00Z' }] }),
-  } as unknown as TaskmdRemote;
-  const service: DshAdapterScope['sessions'] = {
-    create: async () => 'created',
-    fork: async () => {
-      throw Object.assign(new Error('attach failed'), { rpcError: { code: 'session/workspace-attach-failed', details: { sessionId: 'orphan' } } });
-    },
-  };
-  const scope: DshAdapterScope = {
-    get: name => name === 'remote.taskmd' ? remote : undefined,
-    sessions: service,
-    uiWorkspace: { openSession() {} },
-    remote: {} as DshAdapterScope['remote'],
-  };
-  const adapters = createDshAdapters(scope, new AbortController());
-  await assert.rejects(service.fork!({ sessionId: 'parent' }), /attach failed/);
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.deepEqual(bound, [['task', 'orphan']]);
-  adapters.clear();
-});
-
 test('DSH lists all workspaces and creates at the selected repo without a cwd fallback', async () => {
   const h = harness();
   assert.equal((await h.sessions.workspaces()).length, 2);
