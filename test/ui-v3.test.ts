@@ -442,9 +442,7 @@ test('review mode previews the scoped prompt and uses the selected model', async
   const view = await mount(t, createElement(TaskSessionLauncher, {
     record: target, settings: fixture().state().settings, capability, save: async () => target, onChanged() {},
   }));
-  const review = view.root.findByType('input').props.type === 'checkbox'
-    ? view.root.findByType('input')
-    : view.root.findAllByType('input').find(node => node.props.type === 'checkbox')!;
+  const review = view.root.findAllByType('input').find(node => node.props.type === 'checkbox')!;
   assert.equal(review.props.checked, false);
   await act(async () => review.props.onChange({ target: { checked: true } }));
   const prompt = view.root.findByProps({ 'aria-label': '自定义 Prompt' });
