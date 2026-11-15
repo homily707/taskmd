@@ -14,7 +14,7 @@ export interface AutoLaunchSessionController {
     mode: 'queue';
     content: { type: 'text'; text: string }[];
     clientTimeZone?: string;
-  }): Promise<unknown>;
+  }, signal: AbortSignal): Promise<unknown>;
 }
 
 type LaunchStatus = 'pending' | 'creating' | 'created' | 'done' | 'unknown' | 'failed';
@@ -73,6 +73,7 @@ export class InboxAutoLauncher {
   private readonly records = new Map<string, LaunchRecord>();
   private data: LaunchData = {};
   private key = '';
+  private readonly abort = new AbortController();
   private timer?: ReturnType<typeof setTimeout>;
   private running = false;
   private again = false;
@@ -94,6 +95,7 @@ export class InboxAutoLauncher {
 
   close(): void {
     this.closed = true;
+    this.abort.abort();
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     this.unsubscribe?.();
@@ -241,7 +243,7 @@ export class InboxAutoLauncher {
         mode: 'queue',
         content: [{ type: 'text', text: initialPrompt(task) }],
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      });
+      }, this.abort.signal);
       record.sent = true;
       record.status = 'done';
       record.error = undefined;
@@ -266,6 +268,11 @@ export class InboxAutoLauncher {
       for (const [taskId, value] of Object.entries(section)) {
         const record = validRecord(value, taskId);
         if (record) this.records.set(taskId, record);
+      }
+      // A failed launch is retried once per plugin start; kick() also resets
+      // failures after configuration changes.
+      for (const record of this.records.values()) {
+        if (record.status === 'failed') { record.status = 'pending'; record.error = undefined; }
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('taskmd: reading auto-launch state failed', error);
