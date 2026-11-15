@@ -9,7 +9,7 @@ export const styles = `
   --tm-ok:var(--dsw-alias-state-success-primary,#2e9e5b);
   --tm-warn:var(--dsw-alias-state-warn-primary,#d98a00);
   --tm-err:var(--dsw-alias-state-error-primary,#d0453b);
-  --tm-run:var(--dsw-alias-brand-primary,#2f7de1);
+  --tm-run:#2f7de1;
   --tm-surface:var(--dsw-alias-bg-layer-1,Canvas);
   --tm-surface-2:var(--dsw-alias-bg-layer-2,color-mix(in srgb,Canvas 96%,CanvasText));
   --tm-hover:color-mix(in srgb,var(--tm-text) 6%,transparent);
@@ -162,7 +162,7 @@ export const styles = `
 .taskmd-session-dot.is-idle{background:color-mix(in srgb,var(--tm-muted) 75%,transparent)}
 
 /* Floating Session list: portalled to body, so it redeclares the theme tokens it needs. */
-.taskmd-session-popover{--tm-text:var(--dsw-alias-label-primary,CanvasText);--tm-muted:var(--dsw-alias-label-secondary,color-mix(in srgb,CanvasText 62%,transparent));--tm-border:var(--dsw-alias-border-l1,color-mix(in srgb,CanvasText 15%,transparent));--tm-border-strong:var(--dsw-alias-border-l2,color-mix(in srgb,CanvasText 28%,transparent));--tm-accent:var(--dsw-alias-brand-primary,#557ee8);--tm-ok:var(--dsw-alias-state-success-primary,#2e9e5b);--tm-warn:var(--dsw-alias-state-warn-primary,#d98a00);--tm-run:var(--dsw-alias-brand-primary,#2f7de1);--tm-surface:var(--dsw-alias-bg-layer-1,Canvas);--tm-hover:color-mix(in srgb,CanvasText 6%,transparent);position:fixed;z-index:90;inset:auto;margin:0;overflow:auto;background:var(--tm-surface);color:var(--tm-text);border:1px solid var(--tm-border-strong);border-radius:9px;box-shadow:0 10px 32px rgb(0 0 0/.22);padding:4px;font:12px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-sizing:border-box}
+.taskmd-session-popover{--tm-text:var(--dsw-alias-label-primary,CanvasText);--tm-muted:var(--dsw-alias-label-secondary,color-mix(in srgb,CanvasText 62%,transparent));--tm-border:var(--dsw-alias-border-l1,color-mix(in srgb,CanvasText 15%,transparent));--tm-border-strong:var(--dsw-alias-border-l2,color-mix(in srgb,CanvasText 28%,transparent));--tm-accent:var(--dsw-alias-brand-primary,#557ee8);--tm-ok:var(--dsw-alias-state-success-primary,#2e9e5b);--tm-warn:var(--dsw-alias-state-warn-primary,#d98a00);--tm-run:#2f7de1;--tm-surface:var(--dsw-alias-bg-layer-1,Canvas);--tm-hover:color-mix(in srgb,CanvasText 6%,transparent);position:fixed;z-index:90;inset:auto;margin:0;overflow:auto;background:var(--tm-surface);color:var(--tm-text);border:1px solid var(--tm-border-strong);border-radius:9px;box-shadow:0 10px 32px rgb(0 0 0/.22);padding:4px;font:12px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-sizing:border-box}
 .taskmd-session-popover *{box-sizing:border-box}
 .taskmd-session-popover button{font:inherit;color:inherit;cursor:pointer}
 .taskmd-session-popover-head{display:flex;align-items:center;gap:6px;padding:2px 2px 4px;border-bottom:1px solid var(--tm-border);margin-bottom:2px;min-width:0}
