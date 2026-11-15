@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { HomeSettings, TaskRecord } from '../types.js';
 import type { ModelCatalog, ModelSelection, PresetOption, SessionCapability } from './port.js';
 import { failure, useWorkspaces } from './shared.js';
-import { initialPrompt } from './prompt.js';
+import { initialPrompt, reviewPrompt } from './prompt.js';
 import { loadLocal, storeLocal } from './task-editing.js';
 
 export interface LaunchProgress {
@@ -53,6 +53,7 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
   const [presetError, setPresetError] = useState('');
   const [presetTick, setPresetTick] = useState(0);
   const [promptOverride, setPromptOverride] = useState<string>();
+  const [reviewMode, setReviewMode] = useState(false);
   const [model, setModel] = useState<ModelSelection>();
   const [catalog, setCatalog] = useState<ModelCatalog>();
   const [catalogError, setCatalogError] = useState('');
@@ -88,7 +89,7 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
       if (!progress.current) {
         if (!chosen || !workspaces.items.some(item => item.workspaceId === chosen)) throw new Error('请选择一个可用的 DSH 仓库。');
         const saved = await save();
-        progress.current = { requestId: crypto.randomUUID(), text: promptOverride ?? initialPrompt(saved), workspaceId: chosen, preset: preset.trim(), model };
+        progress.current = { requestId: crypto.randomUUID(), text: promptOverride ?? (reviewMode ? reviewPrompt(saved) : initialPrompt(saved)), workspaceId: chosen, preset: preset.trim(), model };
         persist();
       }
       await continueLaunch(capability, record.task.id, progress.current, persist);
@@ -98,7 +99,8 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
   };
   const current = progress.current;
   const complete = !!current?.opened;
-  const defaultPrompt = initialPrompt({ ...record, task: { ...record.task, body: body ?? record.task.body } });
+  const previewRecord = { ...record, task: { ...record.task, body: body ?? record.task.body } };
+  const defaultPrompt = reviewMode ? reviewPrompt(previewRecord) : initialPrompt(previewRecord);
   const selectedModel = catalog?.groups.find(group => group.id === model?.provider)?.models.find(item => item.id === model?.model);
   return <details className="taskmd-launcher"><summary>新建 Session</summary>
     <p className="taskmd-muted">保存正文后发送任务快照。默认在 Home 创建会话，也可选择其他仓库。</p>
@@ -119,6 +121,7 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
         setModel({ provider, model: value });
       }}><option value="">DSH 默认模型</option>{catalog?.groups.map(group => <optgroup key={group.id} label={group.name}>{group.models.map(item => <option key={item.id} value={JSON.stringify([group.id, item.id])}>{item.name}</option>)}</optgroup>)}</select></>}
       {!!selectedModel?.reasoning?.efforts.length && model && <><label htmlFor={`${ids}-effort`}>推理强度</label><select id={`${ids}-effort`} value={model.reasoningEffort ?? ''} onChange={event => setModel({ ...model, reasoningEffort: event.target.value || undefined })}><option value="">模型默认</option>{selectedModel.reasoning.efforts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></>}
+      <label htmlFor={`${ids}-review`}><input id={`${ids}-review`} type="checkbox" checked={reviewMode} onChange={event => { setReviewMode(event.target.checked); setPromptOverride(undefined); }} /> Review 模式（只审查，不修改代码）</label>
       <details className="taskmd-prompt"><summary>自定义 Prompt</summary>
         <textarea aria-label="自定义 Prompt" value={promptOverride ?? defaultPrompt} onChange={event => setPromptOverride(event.target.value)} spellCheck={false} />
         <p className="taskmd-muted">{promptOverride === undefined ? '默认 Prompt 在启动时按已保存正文生成，可先编辑再发送。' : <>已使用自定义内容。<button type="button" className="taskmd-inline-button" onClick={() => setPromptOverride(undefined)}>恢复默认</button></>}</p>
