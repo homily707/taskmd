@@ -7,6 +7,9 @@ import { TaskProperties } from './task-properties.js';
 import { TaskSessionLauncher } from './session-launcher.js';
 import { HomeConfiguration } from './settings.js';
 import { agentLabel, failure, sessionLabel, statusLabels, useAgentView, useSessions, useTasks } from './shared.js';
+import { levelOf } from './agent-status.js';
+
+const bindingStatus = (status?: Parameters<typeof levelOf>[0]) => status ? levelOf(status) : 'idle';
 import { styles } from './styles.js';
 
 export interface TaskmdAppProps { port: TaskPort; sessions?: SessionCapability; initialTaskId?: string; selectionToken?: number; sessionId?: string }
@@ -56,7 +59,7 @@ function TaskSessions({ record, port, sessions, sessionId }: { record: TaskRecor
     try { await run(); agent.refresh(); } catch (cause) { setError(failure(cause)); } finally { setBusy(false); }
   };
   return <section className="taskmd-sessions" aria-label="关联的 Session"><h3>Session <small>{bindings.length}</small></h3>
-    {bindings.length ? <ul>{bindings.map(binding => <li key={binding.sessionId}><button onClick={() => void action(() => sessions.open(binding.sessionId))}>{sessionLabel(sessions, binding.sessionId, agent.statuses.get(binding.sessionId))}</button><small> · Agent {agentLabel(agent.statuses.get(binding.sessionId))}</small><details><summary>关联操作</summary><button disabled={busy} onClick={() => void action(() => sessions.unbind(record.task.id, binding.sessionId))}>解除关联</button></details></li>)}</ul> : <p className="taskmd-muted">尚未关联 Session。</p>}
+    {bindings.length ? <ul>{bindings.map(binding => <li key={binding.sessionId}><button onClick={() => void action(() => sessions.open(binding.sessionId))}>{sessionLabel(sessions, binding.sessionId, agent.statuses.get(binding.sessionId))}</button><small className={`taskmd-status-text is-${bindingStatus(agent.statuses.get(binding.sessionId))}`}> · Agent {agentLabel(agent.statuses.get(binding.sessionId))}</small><details><summary>关联操作</summary><button disabled={busy} onClick={() => void action(() => sessions.unbind(record.task.id, binding.sessionId))}>解除关联</button></details></li>)}</ul> : <p className="taskmd-muted">尚未关联 Session。</p>}
     <details><summary>关联已有 Session</summary>
       <form onSubmit={event => { event.preventDefault(); if (existing.trim()) void action(() => sessions.bind(record.task.id, existing.trim())); }}>
         <label htmlFor={`${ids}-existing`}>Session ID</label><input id={`${ids}-existing`} required value={existing} onChange={event => setExisting(event.target.value)} />

@@ -288,14 +288,15 @@ function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
     {error && <p className="taskmd-error" role="alert">{error}</p>}
     {!collapsed && <div className="taskmd-left-active-list">
       {rows.map(status => {
+        const level = levelOf(status);
         const meta = status.pending ? '等你处理' : status.fresh ? '有新结果'
           : status.running ? (status.runningSubagents ? `运行 · ${status.runningSubagents} 子代理` : '运行中')
           : relativeActivity(status, Date.now());
         return <button type="button" key={status.sessionId} className="taskmd-active-session"
           title={status.sessionId} onClick={() => void open(status.sessionId)}>
-          <span className={`taskmd-session-dot is-${levelOf(status)}`} aria-hidden="true" />
+          <span className={`taskmd-session-dot is-${level}`} aria-hidden="true" />
           <span className="taskmd-active-session-title">{sessions.title?.(status.sessionId) || status.title || status.sessionId}</span>
-          <span className="taskmd-active-session-meta">{meta}</span>
+          <span className={`taskmd-active-session-meta taskmd-status-text is-${level}`}>{meta}</span>
         </button>;
       })}
     </div>}
@@ -393,7 +394,7 @@ function SessionPopover({ taskTitle, anchor, pinned, bindings, statuses, session
         onClick={() => onOpen(binding.sessionId)}>
         <span className={`taskmd-session-dot is-${level}`} aria-hidden="true" />
         <span className="taskmd-session-popover-name">{sessionTitle(binding.sessionId, status)}</span>
-        <span className="taskmd-session-popover-meta">{archived ? '已归档' : status ? levelLabels[level] : '读取中…'}</span>
+        <span className={`taskmd-session-popover-meta taskmd-status-text is-${level}`}>{archived ? '已归档' : status ? levelLabels[level] : '读取中…'}</span>
       </button>;
     })}
     {!bindings.length && <p className="taskmd-session-popover-empty">该任务还没有关联会话。</p>}

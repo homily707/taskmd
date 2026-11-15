@@ -69,6 +69,11 @@ export const styles = `
 .taskmd-agent-pill.is-fresh{color:var(--tm-ok);background:color-mix(in srgb,var(--tm-ok) 12%,transparent)}
 .taskmd-agent-pill.is-running [aria-hidden=true]{animation:taskmd-pulse 1.2s ease-in-out infinite}
 .taskmd-agent-idle{font-size:10.5px;color:var(--tm-muted)}
+/* Status text shares the dot's level colors: warn/attention, run/running, ok/fresh. */
+.taskmd-status-text.is-attention,.taskmd-status-text.is-archived{color:var(--tm-warn)}
+.taskmd-status-text.is-running{color:var(--tm-run)}
+.taskmd-status-text.is-fresh{color:var(--tm-ok)}
+.taskmd-status-text.is-idle,.taskmd-status-text.is-blank,.taskmd-status-text.is-missing{color:var(--tm-muted)}
 .taskmd-agent-chip{display:inline-flex;align-items:center;flex:none;max-width:104px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:10px;line-height:1.6;background:var(--tm-hover);color:var(--tm-muted)}
 .taskmd-agent-chip.is-attention{color:var(--tm-warn);background:color-mix(in srgb,var(--tm-warn) 12%,transparent)}
 .taskmd-agent-chip.is-running{color:var(--tm-run);background:color-mix(in srgb,var(--tm-run) 12%,transparent)}
