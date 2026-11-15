@@ -84,6 +84,19 @@ test('sibling order moves use a single numeric update', () => {
   assert.equal(movedOrder(tasks, 'c', -1), 5);
   assert.equal(movedOrder(tasks, 'a', -1), undefined);
 });
+test('archived Session bindings are hidden from task detail', async t => {
+  const f = fixture([record('a')]);
+  const capability = sessions({
+    list: async () => [{ taskId: 'a', sessionId: 'archived-session', createdAt: '2026-01-01T00:00:00Z' }],
+    statuses: () => ({
+      get: () => new Map([['archived-session', { sessionId: 'archived-session', running: false, archived: true }]]),
+      subscribe: () => () => {},
+    }),
+  });
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port: f.port, sessions: capability, taskId: 'a' }));
+  assert.doesNotMatch(text(view.root), /archived-session/);
+  assert.match(text(view.root), /尚未关联 Session/);
+});
 test('task row enters its first Session; a sessionless task opens Markdown', async t => {
   const f = fixture([record('a'), record('b')]);
   const openedTasks: string[] = []; const openedSessions: string[] = [];

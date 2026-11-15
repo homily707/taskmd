@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { TaskmdApp, TaskmdDetailPanel, TaskmdSidebar } from '../ui/taskmd-app.js';
 import { TaskmdLeftSidebar } from '../ui/left-sidebar.js';
 import type { TaskRecord } from '../types.js';
-import { asError, createDshAdapters, watchChanges } from '../adapters/dsh.js';
+import { asError, createDshAdapters, watchChanges, type SessionsService } from '../adapters/dsh.js';
 import { TYPERT_REMOTE } from './remote.js';
 
 type Dispose = () => void;
@@ -87,7 +87,7 @@ interface ClientContext {
       guide?: { id: string; order: number; title(): string; description(): string; icon: ComponentType }[];
     }): Dispose;
   };
-  sessions: { create(options: { workspaceId?: string; cwd?: string; agentPreset?: string }): Promise<string> };
+  sessions: SessionsService;
   uiWorkspace: { openSession(sessionId: string): void };
   /** Global main-panel selection; `null` selects the Conversation. */
   layout: { selectPanel(panelId: string | null): void };

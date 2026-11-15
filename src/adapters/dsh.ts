@@ -61,6 +61,28 @@ export type TaskmdRemote = {
       ? (...args: A) => Promise<Result<R>> : never
 };
 
+/** One fork request as the shipped Client `sessions` service accepts it. */
+export interface SessionForkOptions {
+  sessionId: string;
+  atSeq?: number;
+  increaseTitle?: boolean;
+  /** Called with the child id before the optional inherited-title update. */
+  onCreated?: (childId: string) => void;
+  allowMigration?: boolean;
+}
+
+/** The DSH Client `sessions` service face taskmd reads and wraps. */
+export interface SessionsService {
+  /** Creates a blank Session from exactly one of `workspaceId` or `cwd`. */
+  create(options: { workspaceId?: string; cwd?: string; agentPreset?: string }): Promise<string>;
+  /**
+   * Forks one Session. DSH 0.2.2-rc.3 does not persist an ordinary fork's
+   * parent link, so this entry is the only place the source→child pair is
+   * observable; `onCreated` fires with the child before title updates.
+   */
+  fork?(options: SessionForkOptions): Promise<string>;
+}
+
 /** The subset of the DSH Client context the data adapters need. */
 export interface DshAdapterScope {
   /** Injection-free service read; `remote.taskmd` only exists after $mount. */
@@ -73,8 +95,7 @@ export interface DshAdapterScope {
       ended(): Error;
     }): AsyncIterable<{ value: T; accept(): void }> & { dispose(): Promise<void> };
   };
-  /** Creates a blank Session from exactly one of `workspaceId` or `cwd`. */
-  sessions: { create(options: { workspaceId?: string; cwd?: string; agentPreset?: string }): Promise<string> };
+  sessions: SessionsService;
   uiWorkspace: { openSession(sessionId: string): void };
 }
 
@@ -164,7 +185,9 @@ function collectSessionStatuses(scope: DshAdapterScope): Map<string, SessionStat
   const archived = new Set((scope.get('workspaces') as WorkspaceService | undefined)
     ?.list.getSnapshot().archivedSessionIds ?? []);
   const result = new Map<string, SessionStatus>();
-  const ids = new Set<string>([...Object.keys(catalog?.byId ?? {}), ...(status?.keys() ?? [])]);
+  // Keep archived ids even when the catalog no longer carries a row, so the
+  // binding filter can hide them without treating them as missing/deleted.
+  const ids = new Set<string>([...Object.keys(catalog?.byId ?? {}), ...(status?.keys() ?? []), ...archived]);
   for (const id of ids) {
     const entry = catalog?.byId[id];
     const live = status?.get(id);
@@ -257,6 +280,67 @@ export function observe<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T
 }
 
 /**
+ * Binds a forked Session to the task of its source Session.
+ *
+ * DSH 0.2.2-rc.3 does not persist an ordinary fork's parent link, so the
+ * Session catalog cannot tell which task a new fork belongs to. The shared
+ * Client `sessions` service is the only chokepoint that sees the exact
+ * source→child pair for manual and plugin-initiated forks in this page.
+ * Binding failures never fail the fork; the original method is restored when
+ * the Client lifetime ends.
+ */
+export function watchSessionForks(scope: DshAdapterScope, remote: TaskmdRemote, lifetime: AbortController): Dispose {
+  const service = scope.sessions;
+  const original = service.fork;
+  if (typeof original !== 'function') return () => {};
+  const own = Object.prototype.hasOwnProperty.call(service, 'fork')
+    ? Object.getOwnPropertyDescriptor(service, 'fork')
+    : undefined;
+  const bound = new Set<string>();
+  const wrapped = async (options: SessionForkOptions): Promise<string> => {
+    // Capture the task before the fork starts: this survives an archive that
+    // lands while the child is being created, and keeps the fork itself
+    // independent from taskmd reads.
+    const taskId = await unwrap(remote.bindings())
+      .then(bindings => bindings.find(binding => binding.sessionId === options.sessionId)?.taskId)
+      .catch(() => undefined);
+    const bindChild = (childId: string) => {
+      if (!taskId || bound.has(childId)) return;
+      bound.add(childId);
+      void unwrap(remote.bind(taskId, childId)).catch(error => {
+        if (!lifetime.signal.aborted) console.warn('taskmd: binding the forked Session failed', error);
+      });
+    };
+    try {
+      const childId = await original.call(service, {
+        ...options,
+        onCreated: (id: string) => {
+          bindChild(id);
+          options.onCreated?.(id);
+        },
+      });
+      // Fallback for a Client build that never calls `onCreated`.
+      bindChild(childId);
+      return childId;
+    } catch (error) {
+      // A failed workspace attach already created the child; keep it bound.
+      const childId = attachFailedSessionId(error);
+      if (childId) bindChild(childId);
+      throw error;
+    }
+  };
+  try { service.fork = wrapped; } catch { return () => {}; }
+  const restore = () => {
+    if (service.fork !== wrapped) return;
+    if (own) Object.defineProperty(service, 'fork', own);
+    else delete service.fork;
+  };
+  if (lifetime.signal.aborted) restore();
+  else lifetime.signal.addEventListener('abort', restore, { once: true });
+  return restore;
+}
+
+/**
  * Builds the DSH-backed {@link TaskPort} and {@link SessionCapability}.
  *
  * The Remote namespace must already be mounted, since `remote.taskmd` is read
@@ -277,6 +361,7 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
   const remote = scope.get('remote.taskmd') as TaskmdRemote | undefined;
   if (!remote) throw new Error('taskmd: the Remote namespace did not mount');
   const statusSource = createSessionStatusSource(scope);
+  const stopForkWatch = watchSessionForks(scope, remote, lifetime);
   const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
   const port: TaskPort = {
     getState(signal) {
@@ -458,8 +543,8 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
       invalidate();
     },
   };
-  /** Drops memoized reads; used when the owning Client lifetime ends. */
-  const clear = () => { stateRead = undefined; taskReads.clear(); };
+  /** Drops memoized reads and restores the shared Session service on lifetime end. */
+  const clear = () => { stateRead = undefined; taskReads.clear(); stopForkWatch(); };
   return { port, sessions, store, invalidate, clear, remote, signalFor };
 }
 

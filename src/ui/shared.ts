@@ -56,7 +56,13 @@ export function useSessions(sessions: SessionCapability | undefined, port: TaskP
     }, cause => { if (!controller.signal.aborted) setError(failure(cause)); });
     return () => controller.abort();
   }, [sessions, tick]);
-  return { bindings, statuses, error, refresh };
+  // Archived Sessions stay in the binding store (so EasyRewrite's version
+  // switching can bring them back), but they are not part of the task view.
+  const visible = useMemo(
+    () => bindings.filter(binding => !statuses.get(binding.sessionId)?.archived),
+    [bindings, statuses],
+  );
+  return { bindings: visible, statuses, error, refresh };
 }
 export function useWorkspaces(sessions?: SessionCapability) {
   const [items, setItems] = useState<WorkspaceSummary[]>([]);

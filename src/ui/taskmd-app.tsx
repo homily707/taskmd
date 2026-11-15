@@ -63,7 +63,7 @@ function TaskSessions({ record, port, sessions, sessionId }: { record: TaskRecor
     <details><summary>关联已有 Session</summary>
       <form onSubmit={event => { event.preventDefault(); if (existing.trim()) void action(() => sessions.bind(record.task.id, existing.trim())); }}>
         <label htmlFor={`${ids}-existing`}>Session ID</label><input id={`${ids}-existing`} required value={existing} onChange={event => setExisting(event.target.value)} />
-        {!!agent.statuses.size && <><label htmlFor={`${ids}-known`}>选择会话</label><select id={`${ids}-known`} value={existing} onChange={event => setExisting(event.target.value)}><option value="">选择已有 Session</option>{[...agent.statuses.values()].filter(item => !item.missing).map(item => <option key={item.sessionId} value={item.sessionId}>{sessionLabel(sessions, item.sessionId, item)}</option>)}</select></>}
+        {!!agent.statuses.size && <><label htmlFor={`${ids}-known`}>选择会话</label><select id={`${ids}-known`} value={existing} onChange={event => setExisting(event.target.value)}><option value="">选择已有 Session</option>{[...agent.statuses.values()].filter(item => !item.missing && !item.archived).map(item => <option key={item.sessionId} value={item.sessionId}>{sessionLabel(sessions, item.sessionId, item)}</option>)}</select></>}
         {agent.bindings.some(item => item.sessionId === existing.trim() && item.taskId !== record.task.id) && <p>此 Session 已关联其他任务，继续会改绑到当前任务。</p>}
         <button disabled={busy || !existing.trim()}>关联 Session</button>
         {sessionId && !bindings.some(item => item.sessionId === sessionId) && <button type="button" disabled={busy} onClick={() => void action(() => sessions.bind(record.task.id, sessionId))}>关联当前 Session</button>}
