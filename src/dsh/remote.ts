@@ -12,7 +12,7 @@ export interface TaskmdRemote {
   create(input: CreateTaskInput): Promise<TaskRecord>;
   update(taskId: string, changes: TaskChanges, expectedVersion: string): Promise<TaskRecord>;
   /** Not `remove`: DSH's generated Remote namespace service already defines that method. */
-  removeTask(taskId: string, expectedVersion: string): Promise<void>;
+  removeTask(taskId: string, expectedVersion: string): Promise<string[]>;
   attachment(taskId: string, href: string): Promise<Attachment>;
   bindings(taskId?: string): Promise<TaskSessionBinding[]>;
   bind(taskId: string, sessionId: string): Promise<void>;
@@ -48,7 +48,7 @@ export const TYPERT_REMOTE = createTypertRemoteInfo({
     'taskmd/read': method('read', [id()], record),
     'taskmd/create': method('create', [parameter('input', createSchema)], record),
     'taskmd/update': method('update', [id(), parameter('changes', changesSchema), version()], record),
-    'taskmd/removeTask': method('removeTask', [id(), version()], z.void()),
+    'taskmd/removeTask': method('removeTask', [id(), version()], z.array(z.string())),
     'taskmd/attachment': method('attachment', [id(), parameter('href', z.string())], z.strictObject({ path: z.string(), mime: z.string(), dataUrl: z.string().optional(), content: z.string().optional() })),
     'taskmd/bindings': method('bindings', [parameter('taskId', z.string().optional(), true)], z.array(binding)),
     'taskmd/bind': method('bind', [id(), session()], z.void()),

@@ -34,7 +34,15 @@ function fixture(records = [record('a')]) {
       const next = { ...previous, version: `v${Number(previous.version.slice(1)) + 1}`, task: { ...previous.task, ...changes } };
       state = { ...state, tasks: state.tasks.map(item => item.task.id === id ? next : item) }; emit(); return next;
     },
-    deleteTask: async id => { state = { ...state, tasks: state.tasks.filter(item => item.task.id !== id) }; emit(); },
+    deleteTask: async (id, _version) => {
+      const doomed = new Set([id]);
+      for (let growing = true; growing;) {
+        growing = false;
+        for (const item of state.tasks) if (item.task.parent && doomed.has(item.task.parent) && !doomed.has(item.task.id)) { doomed.add(item.task.id); growing = true; }
+      }
+      const removed = [...doomed];
+      state = { ...state, tasks: state.tasks.filter(item => !doomed.has(item.task.id)) }; emit(); return removed;
+    },
     readAttachment: async () => ({ path: '/home/image.png', mime: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }),
     subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
   };
@@ -268,12 +276,20 @@ test('save completion after navigation preserves a newer draft reverted to origi
   assert.equal(f.state().tasks[0]!.task.body, '# Saved body');
 });
 
-test('Sidebar shows currently bound task and preserves leaf deletion guard', async t => {
+test('Sidebar shows currently bound task with header archive and confirmed cascade delete', async t => {
   const f = fixture([record('a'), record('child', { parent: 'a' })]);
   const capability = sessions({ list: async () => [{ taskId: 'a', sessionId: 'current', createdAt: '' }] });
   const view = await mount(t, createElement(TaskmdSidebar, { port: f.port, sessions: capability, sessionId: 'current', onOpenTask() {} }));
-  assert.match(text(view.root), /Task a/); assert.match(text(view.root), /请先移动或删除 1 个子任务/);
-  assert.equal(view.root.findAllByType('button').some(node => text(node) === '确认删除叶子任务'), false);
+  assert.match(text(view.root), /Task a/);
+  // Archive is one click in the header.
+  await click(view, '归档任务'); assert.equal(f.state().tasks.find(item => item.task.id === 'a')!.task.archived, true);
+  await click(view, '恢复任务'); assert.equal(f.state().tasks.find(item => item.task.id === 'a')!.task.archived, false);
+  // Delete needs a second confirming click, then removes the subtree.
+  await click(view, '删除任务');
+  assert.equal(f.state().tasks.length, 2);
+  assert.match(text(view.root), /含 1 个子任务/);
+  await click(view, '确认删除（含 1 个子任务）');
+  assert.equal(f.state().tasks.length, 0);
 });
 test('relative Markdown image uses attachment port and executable links stay inert', async t => {
   const f = fixture(); const reads: string[] = []; const read = f.port.readAttachment;
@@ -300,7 +316,7 @@ test('Home configuration selects a DSH workspace and configurable relative task 
   await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
   assert.deepEqual(f.state().settings, { homeDirectory: '/other', homeWorkspaceId: 'other', tasksDirectory: 'notes/tasks' });
 });
-test('parent selection excludes descendants; metadata, archive, restore and leaf deletion work', async t => {
+test('parent selection excludes descendants and metadata edits apply', async t => {
   const f = fixture([record('a'), record('child', { parent: 'a' }), record('other', { order: 10 })]);
   const props = () => ({ record: f.state().tasks[0]!, state: f.state(), port: f.port, onChanged: async () => {} });
   const view = await mount(t, createElement(TaskProperties, props()));
@@ -309,13 +325,6 @@ test('parent selection excludes descendants; metadata, archive, restore and leaf
   await act(async () => view.root.findAllByType('input')[0]!.props.onChange({ target: { value: 'Edited task' } }));
   await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
   assert.equal(f.state().tasks[0]!.task.parent, 'other'); assert.equal(f.state().tasks[0]!.task.title, 'Edited task');
-  await act(async () => view.update(createElement(TaskProperties, props())));
-  await click(view, '归档任务'); assert.equal(f.state().tasks[0]!.task.archived, true);
-  await act(async () => view.update(createElement(TaskProperties, props())));
-  await click(view, '恢复任务'); assert.equal(f.state().tasks[0]!.task.archived, false);
-  const leaf = f.state().tasks.find(item => item.task.id === 'child')!;
-  await act(async () => view.update(createElement(TaskProperties, { ...props(), key: leaf.path, record: leaf })));
-  await click(view, '确认删除叶子任务'); assert.equal(f.state().tasks.some(item => item.task.id === 'child'), false);
 });
 test('model, effort and preset are applied before saved snapshot delivery', async t => {
   const target = record('model'); const events: unknown[] = [];

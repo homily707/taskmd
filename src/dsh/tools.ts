@@ -18,7 +18,7 @@ export function taskTool(api: Omit<TaskmdRemote, 'watch'>) {
         title: { type: 'string' }, body: { type: 'string' }, status: { type: 'string', enum: ['todo', 'in_progress', 'done', 'canceled'] },
         parent: { oneOf: [{ type: 'string' }, { type: 'null' }] }, order: { type: 'number' }, archived: { type: 'boolean' },
       } },
-      expectedVersion: { type: 'string', description: 'Version from read, required for update or delete. Reread and merge after a conflict.' },
+      expectedVersion: { type: 'string', description: 'Version from read, required for update or delete. Reread and merge after a conflict. Delete removes the task and its whole subtree.' },
       sessionId: { type: 'string', description: 'DSH Session ID to bind or unbind. Does not create or send a message.' },
       homeDirectory: { type: 'string', description: 'Existing absolute Home path for configure.' },
       homeWorkspaceId: { type: 'string', description: 'DSH Workspace ID of Home for configure.' },
@@ -42,7 +42,7 @@ export function taskTool(api: Omit<TaskmdRemote, 'watch'>) {
         case 'read': value = await api.read(required(args.taskId, 'taskId')); break;
         case 'create': value = await api.create({ title: required(args.title, 'title'), body: args.body, parent: args.parent }); break;
         case 'update': value = await api.update(required(args.taskId, 'taskId'), args.changes ?? {}, required(args.expectedVersion, 'expectedVersion')); break;
-        case 'delete': await api.removeTask(required(args.taskId, 'taskId'), required(args.expectedVersion, 'expectedVersion')); value = { deleted: args.taskId }; break;
+        case 'delete': value = { deleted: await api.removeTask(required(args.taskId, 'taskId'), required(args.expectedVersion, 'expectedVersion')) }; break;
         case 'configure': {
           const state = await api.configure({ homeDirectory: required(args.homeDirectory, 'homeDirectory'), homeWorkspaceId: args.homeWorkspaceId ?? null, tasksDirectory: args.tasksDirectory ?? 'tasks' });
           value = { settings: state.settings, taskCount: state.tasks.length, diagnostics: state.diagnostics };

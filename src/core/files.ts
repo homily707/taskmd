@@ -367,7 +367,8 @@ export class TaskFiles {
       this.notify(); return { task, content, version: hash(content), path };
     });
   }
-  remove(id: string, expectedVersion: string): Promise<void> {
+  /** Deleting a task removes its whole subtree, deepest tasks first. */
+  remove(id: string, expectedVersion: string): Promise<string[]> {
     return serialized(async () => {
       await this.prepare();
       let current: TaskRecord;
@@ -377,19 +378,34 @@ export class TaskFiles {
         // A prior deletion may have committed before local binding cleanup failed.
         const data = await this.bindingData(); const key = this.bindingKey();
         data[key] = (data[key] ?? []).filter(binding => binding.taskId !== id);
-        await writeJson(join(this.localDirectory, 'bindings.json'), data); this.notify(); return;
+        await writeJson(join(this.localDirectory, 'bindings.json'), data); this.notify(); return [id];
       }
       const state = await this.scan();
-      const children = state.tasks.filter(record => record.task.parent === id).map(record => ({ id: record.task.id, title: record.task.title }));
-      if (children.length) throw new TaskError('has_children', 'Move or delete child tasks first.', { children });
-      if (state.diagnostics.length) throw new TaskError('invalid_structure', 'Resolve task diagnostics before deleting; children cannot be safely determined.', state.diagnostics);
+      if (state.diagnostics.length) throw new TaskError('invalid_structure', 'Resolve task diagnostics before deleting; descendants cannot be safely determined.', state.diagnostics);
+      const byId = new Map(state.tasks.map(record => [record.task.id, record]!));
+      const depthOf = (record: TaskRecord): number => {
+        let depth = 0; let parent: string | null = record.task.parent;
+        while (parent !== null) { const ancestor = byId.get(parent); if (!ancestor) break; depth += 1; parent = ancestor.task.parent; }
+        return depth;
+      };
+      const doomed = new Set([id]);
+      for (let growing = true; growing;) {
+        growing = false;
+        for (const record of state.tasks) {
+          if (record.task.parent !== null && doomed.has(record.task.parent) && !doomed.has(record.task.id)) { doomed.add(record.task.id); growing = true; }
+        }
+      }
+      const ordered = state.tasks.filter(record => doomed.has(record.task.id) && record.task.id !== id)
+        .sort((a, b) => depthOf(b) - depthOf(a));
       const data = await this.bindingData();
       const key = this.bindingKey();
-      data[key] = (data[key] ?? []).filter(binding => binding.taskId !== id);
+      data[key] = (data[key] ?? []).filter(binding => !doomed.has(binding.taskId));
       await this.checkVersion(id, expectedVersion);
+      for (const record of ordered) await unlink(record.path);
       await unlink(current.path);
       await writeJson(join(this.localDirectory, 'bindings.json'), data);
       this.notify();
+      return [...doomed];
     });
   }
   private bindingKey(): string { return hash(this.directory); }

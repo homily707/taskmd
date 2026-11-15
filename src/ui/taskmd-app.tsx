@@ -6,7 +6,7 @@ import { TaskEditor, useBodyDraft } from './task-editor.js';
 import { TaskProperties } from './task-properties.js';
 import { TaskSessionLauncher } from './session-launcher.js';
 import { HomeConfiguration } from './settings.js';
-import { agentLabel, failure, sessionLabel, statusLabels, useAgentView, useSessions, useTasks } from './shared.js';
+import { agentLabel, descendants, failure, sessionLabel, statusLabels, useAgentView, useSessions, useTasks } from './shared.js';
 import { levelOf } from './agent-status.js';
 
 const bindingStatus = (status?: Parameters<typeof levelOf>[0]) => status ? levelOf(status) : 'idle';
@@ -77,15 +77,25 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
   const editor = useBodyDraft(record, port, onChanged);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const id = useId();
   useEffect(() => { heading.current?.focus(); }, []);
+  useEffect(() => { setConfirming(false); }, [record.task.id]);
+  const subtree = descendants(state.tasks.map(item => item.task), record.task.id).size;
+  const run = (action: () => Promise<unknown>) => {
+    if (busy) return; setBusy(true); setError('');
+    void action().then(onChanged).catch(cause => setError(failure(cause))).finally(() => setBusy(false));
+  };
   return <article className="taskmd-detail">
     <header className="taskmd-detail-head"><h2 className="taskmd-detail-title" ref={heading} tabIndex={-1}>{record.task.title}</h2><div className="taskmd-detail-actions">
       <label htmlFor={`${id}-status`}>任务状态</label><select id={`${id}-status`} aria-label="任务状态" value={record.task.status} disabled={busy} onChange={event => {
-        setBusy(true); setError('');
-        void port.updateTask(record.task.id, { status: event.target.value as TaskStatus }, record.version).then(onChanged).catch(cause => setError(failure(cause))).finally(() => setBusy(false));
+        run(() => port.updateTask(record.task.id, { status: event.target.value as TaskStatus }, record.version));
       }}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+      <button disabled={busy} onClick={() => run(() => port.updateTask(record.task.id, { archived: !record.task.archived }, record.version))}>{record.task.archived ? '恢复任务' : '归档任务'}</button>
+      {confirming
+        ? <button className="taskmd-danger" disabled={busy} onClick={() => run(() => port.deleteTask(record.task.id, record.version))}>确认删除{subtree > 1 ? `（含 ${subtree - 1} 个子任务）` : ''}</button>
+        : <button disabled={busy} onClick={() => setConfirming(true)}>删除任务</button>}
       {record.task.archived && <span className="taskmd-agent-chip is-archived">已归档</span>}
     </div></header>
     {error && <p role="alert" className="taskmd-error">{error}</p>}

@@ -115,14 +115,18 @@ test('parent structure is enforced without state, cancellation, or archive casca
   await files.create({ title: 'New child of archived done parent', parent: parent.task.id });
   const restored = await files.update(parent.task.id, { archived: false, status: 'canceled' }, done.version);
   assert.equal((await files.read(child.task.id)).task.status, 'todo');
-  await assert.rejects(files.remove(parent.task.id, restored.version), error => {
-    assert.ok(errorCode('has_children')(error));
-    assert.equal(((error as TaskError).details as { children: unknown[] }).children.length, 2); return true;
-  });
-  const external = await files.read(grandchild.task.id);
-  await writeFile(external.path, external.content.replace(`parent: ${child.task.id}`, `parent: ${randomUUID()}`));
+  await files.bind(child.task.id, 'session-child'); await files.bind(grandchild.task.id, 'session-grandchild');
+  const deleted = await files.remove(parent.task.id, restored.version);
+  assert.equal(deleted.length, 4);
+  assert.ok(deleted.includes(parent.task.id) && deleted.includes(child.task.id) && deleted.includes(grandchild.task.id));
+  await assert.rejects(files.read(parent.task.id), errorCode('not_found'));
+  await assert.rejects(files.read(child.task.id), errorCode('not_found'));
+  assert.deepEqual(await files.bindings(), []);
+  const orphanHost = await files.create({ title: 'Orphan host' });
+  const orphan = await files.create({ title: 'Orphan', parent: orphanHost.task.id });
+  await writeFile(orphan.path, orphan.content.replace(`parent: ${orphanHost.task.id}`, `parent: ${randomUUID()}`));
   assert.ok((await files.state()).diagnostics.some(item => item.message.includes('does not exist')));
-  await files.update(grandchild.task.id, { parent: null }, (await files.read(grandchild.task.id)).version);
+  await files.update(orphan.task.id, { parent: null }, (await files.read(orphan.task.id)).version);
   assert.equal((await files.state()).diagnostics.length, 0);
 });
 

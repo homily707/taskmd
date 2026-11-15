@@ -6,7 +6,7 @@ export interface TaskPort {
   readTask(id: string, signal?: AbortSignal): Promise<TaskRecord>;
   createTask(input: CreateTaskInput): Promise<TaskRecord>;
   updateTask(id: string, changes: TaskChanges, expectedVersion: string): Promise<TaskRecord>;
-  deleteTask(id: string, expectedVersion: string): Promise<void>;
+  deleteTask(id: string, expectedVersion: string): Promise<string[]>;
   readAttachment(id: string, href: string): Promise<Attachment>;
   subscribe(listener: () => void): () => void;
 }

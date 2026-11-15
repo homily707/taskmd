@@ -60,7 +60,7 @@ export default class TaskmdHost extends TypertRemoteService implements TaskmdRem
   @Remote('update')
   update(taskId: string, changes: TaskChanges, expectedVersion: string): Promise<TaskRecord> { return this.run(() => this.files.update(taskId, changes, expectedVersion)); }
   @Remote('removeTask')
-  removeTask(taskId: string, expectedVersion: string): Promise<void> { return this.run(() => this.files.remove(taskId, expectedVersion)); }
+  removeTask(taskId: string, expectedVersion: string): Promise<string[]> { return this.run(() => this.files.remove(taskId, expectedVersion)); }
   @Remote('attachment')
   attachment(taskId: string, href: string): Promise<Attachment> { return this.run(() => this.files.attachment(taskId, href)); }
   @Remote('bindings')
