@@ -85,6 +85,11 @@ interface SessionRemote {
   prompt(request: { sessionId: string; requestId: string; mode: 'queue'; content: { type: 'text'; text: string }[]; clientTimeZone?: string }): Promise<Result<{ accepted: true }>>;
 }
 
+/** The `remote.agentPresets` namespace: the roster DSH can compose new sessions from. */
+interface AgentPresetsRemote {
+  list(): Promise<Result<{ presets: { id: string; name?: string; description?: string; broken?: string; isDefault?: boolean }[] }>>;
+}
+
 /** The `workspaces` Client service's snapshot list, as this adapter reads it. */
 interface WorkspaceService {
   list: {
@@ -347,6 +352,21 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
       if (!service) return [];
       const snapshot = service.list.getSnapshot();
       return snapshot.items.map(item => ({ workspaceId: item.workspaceId, path: item.path, title: item.title }));
+    },
+    async presets(signal) {
+      signalFor(signal).throwIfAborted();
+      const namespace = scope.get('remote.agentPresets') as AgentPresetsRemote | undefined;
+      if (!namespace) return [];
+      try {
+        const roster = await observe(unwrap(namespace.list()), signalFor(signal));
+        // A broken preset cannot compose a session, so it never reaches the picker.
+        return roster.presets.filter(preset => preset.broken === undefined)
+          .map(preset => ({ id: preset.id, ...(preset.name ? { name: preset.name } : {}), ...(preset.description ? { description: preset.description } : {}), ...(preset.isDefault ? { isDefault: true } : {}) }));
+      } catch (error) {
+        // Agent presets are optional: without the service every session uses the Host composition.
+        if (failureCode(error) === 'gateway/invocation-unavailable') return [];
+        throw error;
+      }
     },
     async catalog(signal) {
       signalFor(signal).throwIfAborted();

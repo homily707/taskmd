@@ -11,6 +11,12 @@ export interface TaskPort {
   subscribe(listener: () => void): () => void;
 }
 
+export interface PresetOption {
+  id: string;
+  name?: string;
+  description?: string;
+  isDefault?: boolean;
+}
 export interface WorkspaceSummary { workspaceId: string; path: string; title: string }
 export interface ModelEffort { id: string; name: string; description?: string }
 export interface ModelOption {
@@ -54,6 +60,7 @@ export interface SessionCapability {
   currentDirectory?(signal?: AbortSignal): Promise<string | null>;
   subscribeTargets?(listener: () => void): () => void;
   workspaces(signal?: AbortSignal): Promise<WorkspaceSummary[]>;
+  presets?(signal?: AbortSignal): Promise<PresetOption[]>;
   catalog?(signal?: AbortSignal): Promise<ModelCatalog>;
   selectModel?(sessionId: string, selection: ModelSelection): Promise<void>;
   send?(sessionId: string, text: string, requestId: string): Promise<void>;

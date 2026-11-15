@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { HomeSettings, TaskRecord } from '../types.js';
-import type { ModelCatalog, ModelSelection, SessionCapability } from './port.js';
+import type { ModelCatalog, ModelSelection, PresetOption, SessionCapability } from './port.js';
 import { failure, useWorkspaces } from './shared.js';
 import { initialPrompt } from './prompt.js';
 import { loadLocal, storeLocal } from './task-editing.js';
@@ -43,12 +43,16 @@ export async function continueLaunch(capability: SessionCapability, taskId: stri
   if (!progress.opened) { await capability.open(id); progress.opened = true; persist(); }
 }
 
-export function TaskSessionLauncher({ record, settings, capability, save, onChanged }: {
-  record: TaskRecord; settings: HomeSettings; capability: SessionCapability; save(): Promise<TaskRecord>; onChanged(): void;
+export function TaskSessionLauncher({ record, settings, capability, save, body, onChanged }: {
+  record: TaskRecord; settings: HomeSettings; capability: SessionCapability; save(): Promise<TaskRecord>; body?: string; onChanged(): void;
 }) {
   const workspaces = useWorkspaces(capability);
   const [chosen, setChosen] = useState(settings.homeWorkspaceId ?? '');
   const [preset, setPreset] = useState('');
+  const [presetOptions, setPresetOptions] = useState<PresetOption[]>();
+  const [presetError, setPresetError] = useState('');
+  const [presetTick, setPresetTick] = useState(0);
+  const [promptOverride, setPromptOverride] = useState<string>();
   const [model, setModel] = useState<ModelSelection>();
   const [catalog, setCatalog] = useState<ModelCatalog>();
   const [catalogError, setCatalogError] = useState('');
@@ -61,6 +65,12 @@ export function TaskSessionLauncher({ record, settings, capability, save, onChan
   const progress = useRef<LaunchProgress | undefined>(loadLocal<LaunchProgress>(launchKey(record)));
   if (progress.current?.creating && !activeLaunches.has(launchKey(record))) { progress.current.creating = false; progress.current.unknown = true; }
   const ids = useId();
+  useEffect(() => {
+    if (!capability.presets) return;
+    const controller = new AbortController();
+    void capability.presets(controller.signal).then(value => { if (!controller.signal.aborted) { setPresetOptions(value); setPresetError(''); } }, cause => { if (!controller.signal.aborted) setPresetError(failure(cause)); });
+    return () => controller.abort();
+  }, [capability, presetTick]);
   useEffect(() => {
     const controller = new AbortController();
     void capability.catalog?.(controller.signal).then(value => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(''); } }, cause => { if (!controller.signal.aborted) setCatalogError(failure(cause)); });
@@ -78,7 +88,7 @@ export function TaskSessionLauncher({ record, settings, capability, save, onChan
       if (!progress.current) {
         if (!chosen || !workspaces.items.some(item => item.workspaceId === chosen)) throw new Error('请选择一个可用的 DSH 仓库。');
         const saved = await save();
-        progress.current = { requestId: crypto.randomUUID(), text: initialPrompt(saved), workspaceId: chosen, preset: preset.trim(), model };
+        progress.current = { requestId: crypto.randomUUID(), text: promptOverride ?? initialPrompt(saved), workspaceId: chosen, preset: preset.trim(), model };
         persist();
       }
       await continueLaunch(capability, record.task.id, progress.current, persist);
@@ -88,6 +98,7 @@ export function TaskSessionLauncher({ record, settings, capability, save, onChan
   };
   const current = progress.current;
   const complete = !!current?.opened;
+  const defaultPrompt = initialPrompt({ ...record, task: { ...record.task, body: body ?? record.task.body } });
   const selectedModel = catalog?.groups.find(group => group.id === model?.provider)?.models.find(item => item.id === model?.model);
   return <details className="taskmd-launcher"><summary>新建 Session</summary>
     <p className="taskmd-muted">保存正文后发送任务快照。默认在 Home 创建会话，也可选择其他仓库。</p>
@@ -95,15 +106,26 @@ export function TaskSessionLauncher({ record, settings, capability, save, onChan
       <label htmlFor={`${ids}-repo`}>Session 仓库</label><select id={`${ids}-repo`} aria-label="Session 仓库" value={chosen} onChange={event => setChosen(event.target.value)}>
         <option value="">选择 DSH 仓库</option>{workspaces.items.map(item => <option key={item.workspaceId} value={item.workspaceId}>{item.workspaceId === settings.homeWorkspaceId ? 'Home · ' : ''}{item.title} · {item.path}</option>)}
       </select>
-      <label htmlFor={`${ids}-preset`}>Agent preset（可选）</label><input id={`${ids}-preset`} value={preset} onChange={event => setPreset(event.target.value)} placeholder="使用 DSH 默认 preset" />
+      <label htmlFor={`${ids}-preset`}>Agent preset（可选）</label>
+      {presetOptions
+        ? <select id={`${ids}-preset`} aria-label="Agent preset" value={preset} onChange={event => setPreset(event.target.value)}>
+          <option value="">使用 DSH 默认 preset</option>
+          {presetOptions.map(option => <option key={option.id} value={option.id} title={option.description}>{option.name ?? option.id}{option.isDefault ? '（默认）' : ''}</option>)}
+        </select>
+        : <input id={`${ids}-preset`} value={preset} onChange={event => setPreset(event.target.value)} placeholder={presetError ? 'preset 列表不可用，可手动填 ID' : '使用 DSH 默认 preset'} />}
       {capability.catalog && capability.selectModel && <><label htmlFor={`${ids}-model`}>模型</label><select id={`${ids}-model`} value={model ? JSON.stringify([model.provider, model.model]) : ''} onChange={event => {
         if (!event.target.value) { setModel(undefined); return; }
         const [provider, value] = JSON.parse(event.target.value) as [string, string];
         setModel({ provider, model: value });
       }}><option value="">DSH 默认模型</option>{catalog?.groups.map(group => <optgroup key={group.id} label={group.name}>{group.models.map(item => <option key={item.id} value={JSON.stringify([group.id, item.id])}>{item.name}</option>)}</optgroup>)}</select></>}
       {!!selectedModel?.reasoning?.efforts.length && model && <><label htmlFor={`${ids}-effort`}>推理强度</label><select id={`${ids}-effort`} value={model.reasoningEffort ?? ''} onChange={event => setModel({ ...model, reasoningEffort: event.target.value || undefined })}><option value="">模型默认</option>{selectedModel.reasoning.efforts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></>}
+      <details className="taskmd-prompt"><summary>自定义 Prompt</summary>
+        <textarea aria-label="自定义 Prompt" value={promptOverride ?? defaultPrompt} onChange={event => setPromptOverride(event.target.value)} spellCheck={false} />
+        <p className="taskmd-muted">{promptOverride === undefined ? '默认 Prompt 在启动时按已保存正文生成，可先编辑再发送。' : <>已使用自定义内容。<button type="button" className="taskmd-inline-button" onClick={() => setPromptOverride(undefined)}>恢复默认</button></>}</p>
+      </details>
     </fieldset>
     {workspaces.error && <p role="alert">{workspaces.error} <button onClick={workspaces.refresh}>重新读取仓库</button></p>}
+    {presetError && <p role="alert">{presetError} <button onClick={() => setPresetTick(value => value + 1)}>重新读取 preset</button></p>}
     {catalogError && <p role="alert">{catalogError} <button onClick={() => setCatalogTick(value => value + 1)}>重新读取模型</button></p>}
     {!!catalog?.failures.length && <p className="taskmd-muted">部分模型不可用：{catalog.failures.map(item => item.name).join('、')}</p>}
     {error && <p role="alert" className="taskmd-error">{error}</p>}

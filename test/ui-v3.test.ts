@@ -341,6 +341,43 @@ test('model, effort and preset are applied before saved snapshot delivery', asyn
   await click(view, '保存并启动 Session');
   assert.deepEqual(events, [{ workspaceId: 'home', agentPreset: 'coder' }, ['s', { provider: 'p', model: 'm', reasoningEffort: 'high' }], 'send']);
 });
+test('preset roster drives a dropdown and marks the default', async t => {
+  const target = record('preset'); let createdOptions: unknown;
+  const capability = sessions({
+    presets: async () => [{ id: 'standard', name: 'Standard', isDefault: true }, { id: 'coder', name: 'Coder' }],
+    create: async (_task, options) => { createdOptions = options; return { sessionId: 's' }; },
+  });
+  const view = await mount(t, createElement(TaskSessionLauncher, { record: target, settings: fixture().state().settings, capability, save: async () => target, onChanged() {} }));
+  const preset = view.root.findByProps({ 'aria-label': 'Agent preset' });
+  assert.deepEqual(preset.findAllByType('option').map(node => node.props.value), ['', 'standard', 'coder']);
+  await act(async () => { preset.props.onChange({ target: { value: 'coder' } }); });
+  await click(view, '保存并启动 Session');
+  assert.deepEqual(createdOptions, { workspaceId: 'home', agentPreset: 'coder' });
+});
+test('preset roster miss falls back to the free-text input', async t => {
+  const target = record('preset-fallback'); let createdOptions: unknown;
+  const capability = sessions({ create: async (_task, options) => { createdOptions = options; return { sessionId: 's' }; } });
+  const view = await mount(t, createElement(TaskSessionLauncher, { record: target, settings: fixture().state().settings, capability, save: async () => target, onChanged() {} }));
+  assert.equal(view.root.findAllByProps({ 'aria-label': 'Agent preset' }).length, 0);
+  await act(async () => { view.root.findByProps({ placeholder: '使用 DSH 默认 preset' }).props.onChange({ target: { value: 'hand-typed' } }); });
+  await click(view, '保存并启动 Session');
+  assert.deepEqual(createdOptions, { workspaceId: 'home', agentPreset: 'hand-typed' });
+});
+test('custom prompt replaces the generated snapshot text; reset restores it', async t => {
+  const target = record('prompt'); let sent = '';
+  const capability = sessions({ send: async (_id, value) => { sent = value; } });
+  const view = await mount(t, createElement(TaskSessionLauncher, { record: target, settings: fixture().state().settings, capability, save: async () => target, body: 'unsaved draft', onChanged() {} }));
+  const field = view.root.findByProps({ 'aria-label': '自定义 Prompt' });
+  // The default preview follows the current draft body before any edit.
+  assert.match(field.props.value, /unsaved draft/);
+  await act(async () => { field.props.onChange({ target: { value: '只发这句话。' } }); });
+  await click(view, '保存并启动 Session');
+  assert.equal(sent, '只发这句话。');
+  await click(view, '准备另一个 Session');
+  await click(view, '恢复默认');
+  await click(view, '保存并启动 Session');
+  assert.match(sent, /# Saved body/);
+});
 test('remount during pending creation reuses progress and prevents concurrent launch', async t => {
   const target = record('inflight'); let creates = 0; let release!: (value: { sessionId: string }) => void;
   const pending = new Promise<{ sessionId: string }>(resolve => { release = resolve; });

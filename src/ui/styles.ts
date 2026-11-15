@@ -201,7 +201,16 @@ export const styles = `
 .taskmd-toolbar [aria-pressed=true]{background:var(--tm-accent-soft);border-color:var(--tm-accent);color:var(--tm-accent)}
 .taskmd-body{margin:16px 0 4px}
 .taskmd-body>.taskmd-toolbar{margin:0 0 10px}
-.taskmd-body textarea{min-height:360px;font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;tab-size:2;resize:vertical}
+.taskmd-body textarea{width:100%;min-height:360px;font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;tab-size:2;resize:vertical}
+/* Right-sidebar detail surface: the Markdown editor fills the pane's remaining height and full width. */
+.taskmd-detail-panel{display:flex;flex-direction:column;overflow:auto}
+.taskmd-detail-panel .taskmd-detail{flex:1;display:flex;flex-direction:column;min-height:0;max-width:none;margin:0}
+.taskmd-detail-panel .taskmd-body{flex:1;display:flex;flex-direction:column;min-height:220px;margin:10px 0 4px}
+.taskmd-detail-panel .taskmd-body>label{flex:none}
+.taskmd-detail-panel .taskmd-body textarea{flex:1;min-height:0;resize:none}
+.taskmd-detail-panel .taskmd-body>.taskmd-md{flex:1;min-height:0;overflow:auto;margin:0}
+.taskmd-prompt{border:0;padding:2px 0}
+.taskmd-prompt textarea{width:100%;min-height:140px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}
 .taskmd-conflict{border:1px solid var(--tm-warn);background:color-mix(in srgb,var(--tm-warn) 7%,transparent);border-radius:8px;padding:10px 12px;margin:10px 0}
 .taskmd-conflict pre{white-space:pre-wrap;max-height:260px;overflow:auto;font-size:12px;padding:8px;background:var(--tm-hover);border-radius:6px}
 

@@ -112,7 +112,7 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
     {error && <p role="alert" className="taskmd-error">{error}</p>}
     <TaskEditor record={record} port={port} editor={editor} />
     {sessions && <><TaskSessions record={record} port={port} sessions={sessions} sessionId={sessionId} />
-      <TaskSessionLauncher record={record} settings={state.settings} capability={sessions} save={editor.save} onChanged={() => void onChanged()} /></>}
+      <TaskSessionLauncher record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} onChanged={() => void onChanged()} /></>}
     <TaskProperties record={record} state={state} port={port} onChanged={onChanged} />
     <details><summary>Markdown 文件</summary><p className="taskmd-path">{record.path}</p><p className="taskmd-muted">任务 ID：{record.task.id}</p></details>
   </article>;
@@ -121,7 +121,7 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
 export function TaskmdDetailPanel({ port, sessions, taskId, sessionId }: { port: TaskPort; sessions?: SessionCapability; taskId: string; sessionId?: string }) {
   const { state, error, refresh } = useTasks(port);
   const record = state?.tasks.find(item => item.task.id === taskId);
-  return <div className="taskmd-app"><style>{styles}</style>{error && <p role="alert">{error}</p>}{record && state ? <TaskDetail key={record.task.id} record={record} state={state} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /> : <p>{state ? '任务不存在或 Home 已切换。' : '正在读取任务…'}</p>}</div>;
+  return <div className="taskmd-app taskmd-detail-panel"><style>{styles}</style>{error && <p role="alert">{error}</p>}{record && state ? <TaskDetail key={record.task.id} record={record} state={state} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /> : <p>{state ? '任务不存在或 Home 已切换。' : '正在读取任务…'}</p>}</div>;
 }
 
 export function TaskmdSidebar({ port, sessions, sessionId, onOpenTask }: { port: TaskPort; sessions: SessionCapability; sessionId: string; onOpenTask(id: string): void }) {
