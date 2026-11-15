@@ -2,10 +2,12 @@ import { constants } from 'node:fs';
 import { link, mkdir, open, readdir, realpath, rename, stat, unlink } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { TaskError, type Attachment, type CreateTaskInput, type HomeSettings, type State, type Task, type TaskChanges, type TaskRecord, type TaskSessionBinding } from '../types.js';
+import { TaskError, type Attachment, type CreateTaskInput, type Diagnostic, type HomeSettings, type InboxEntry, type State, type Task, type TaskChanges, type TaskRecord, type TaskSessionBinding } from '../types.js';
 import { createDocument, hash, isManaged, MAX_DOCUMENT, parseTask, updateDocument, UUID, validateChanges, validateId } from './document.js';
 
 const defaults: HomeSettings = { homeDirectory: '', homeWorkspaceId: null, tasksDirectory: 'tasks' };
+/** Only files placed in this directory below the task directory trigger import and Session launch. */
+export const INBOX_DIRECTORY = 'inbox';
 const MAX_LOCAL = 4 * 1024 * 1024;
 const MAX_ATTACHMENT = 8 * 1024 * 1024;
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -135,6 +137,7 @@ export class TaskFiles {
   private settings: HomeSettings = { ...defaults };
   private home = '';
   private directory = '';
+  private inbox = '';
   private listeners = new Set<() => void>();
   private timer?: ReturnType<typeof setInterval>;
   private fingerprint?: string;
@@ -183,9 +186,10 @@ export class TaskFiles {
     const paths = await this.paths(this.settings);
     this.home = paths.home;
     this.directory = paths.directory;
+    this.inbox = paths.inbox;
   }
-  private async paths(settings: HomeSettings): Promise<{ home: string; directory: string }> {
-    if (!settings.homeDirectory) return { home: '', directory: '' };
+  private async paths(settings: HomeSettings): Promise<{ home: string; directory: string; inbox: string }> {
+    if (!settings.homeDirectory) return { home: '', directory: '', inbox: '' };
     const home = await realpath(settings.homeDirectory);
     if (!(await stat(home)).isDirectory()) throw new TaskError('invalid_settings', 'Home must be a directory.');
     let directory = home;
@@ -199,19 +203,29 @@ export class TaskFiles {
       }
     }
     if (directory === home) throw new TaskError('invalid_settings', 'Tasks directory must be below Home.');
+    let inbox = directory;
+    for (const part of INBOX_DIRECTORY.split('/')) {
+      const candidate = join(inbox, part);
+      try { await mkdir(candidate); }
+      catch (error) { if (code(error) !== 'EEXIST') throw error; }
+      inbox = await realpath(candidate);
+      if (!within(directory, inbox) || inbox === directory || !(await stat(inbox)).isDirectory()) {
+        throw new TaskError('path_outside_home', 'Inbox directory must resolve within the tasks directory.');
+      }
+    }
     const local = await realpath(this.localDirectory);
     if (within(directory, local) || within(local, directory)) throw new TaskError('invalid_settings', 'Tasks and local settings directories must be separate.');
-    return { home, directory };
+    return { home, directory, inbox };
   }
   private configured(): void {
     if (!this.directory) throw new TaskError('not_configured', 'Choose a Home workspace first.');
   }
   private async assertDirectory(): Promise<void> {
     const paths = await this.paths(this.settings);
-    if (paths.home !== this.home || paths.directory !== this.directory) throw new TaskError('path_changed', 'Home or tasks directory changed during the operation.');
+    if (paths.home !== this.home || paths.directory !== this.directory || paths.inbox !== this.inbox) throw new TaskError('path_changed', 'Home or tasks directory changed during the operation.');
   }
   private async scan(): Promise<State> {
-    const state: State = { settings: { ...this.settings }, tasks: [], diagnostics: [] };
+    const state: State = { settings: { ...this.settings }, tasks: [], diagnostics: [], inbox: { directory: INBOX_DIRECTORY, pending: 0, diagnostics: [] } };
     if (!this.directory) return state;
     await this.assertDirectory();
     const seen = new Map<string, string>();
@@ -238,18 +252,51 @@ export class TaskFiles {
     }
     return state;
   }
-  private async snapshotFingerprint(): Promise<string> {
-    return hash(JSON.stringify([await this.scan(), await this.bindingData()]));
+  /** Valid task documents waiting in the inbox; malformed files stay there with diagnostics. */
+  private async readInbox(): Promise<{ entries: InboxEntry[]; diagnostics: Diagnostic[] }> {
+    const result: { entries: InboxEntry[]; diagnostics: Diagnostic[] } = { entries: [], diagnostics: [] };
+    if (!this.inbox) return result;
+    let names: string[];
+    try { names = (await readdir(this.inbox)).sort(); }
+    catch (error) { if (code(error) === 'ENOENT') return result; throw error; }
+    for (const name of names) {
+      if (!name.endsWith('.md') || name.startsWith('.')) continue;
+      const path = join(this.inbox, name);
+      try {
+        const content = await text(path, MAX_DOCUMENT);
+        if (!isManaged(content)) { result.diagnostics.push({ path, message: 'Not a taskmd task.' }); continue; }
+        const task = parseTask(content);
+        result.entries.push({ name, path, content, version: hash(content), task });
+      } catch (error) {
+        result.diagnostics.push({ path, message: (error as Error).message });
+      }
+    }
+    return result;
   }
-  state(): Promise<State> { return serialized(async () => { await this.prepare(); return this.scan(); }); }
+  private async statePrepared(): Promise<State> {
+    const state = await this.scan();
+    const inbox = await this.readInbox();
+    state.inbox = { directory: INBOX_DIRECTORY, pending: inbox.entries.length, diagnostics: inbox.diagnostics };
+    return state;
+  }
+  private async snapshotFingerprint(): Promise<string> {
+    const inbox = await this.readInbox();
+    return hash(JSON.stringify([
+      await this.scan(),
+      await this.bindingData(),
+      inbox.entries.map(entry => [entry.name, entry.version]),
+      inbox.diagnostics.map(item => [item.path, item.message]),
+    ]));
+  }
+  state(): Promise<State> { return serialized(async () => { await this.prepare(); return this.statePrepared(); }); }
   configure(settings: HomeSettings): Promise<State> {
     return serialized(async () => {
       await this.prepareLocal();
       const next = settingsOf(settings);
       const paths = await this.paths(next);
       await writeJson(join(this.localDirectory, 'settings.json'), next);
-      this.settings = next; this.home = paths.home; this.directory = paths.directory;
-      const state = await this.scan(); this.notify(); return state;
+      this.settings = next; this.home = paths.home; this.directory = paths.directory; this.inbox = paths.inbox;
+      const state = await this.statePrepared(); this.notify(); return state;
     });
   }
   private async prepareLocal(): Promise<void> { await mkdir(this.localDirectory, { recursive: true, mode: 0o700 }); }
@@ -295,6 +342,78 @@ export class TaskFiles {
     return { task, content, version, path };
   }
   read(id: string): Promise<TaskRecord> { return serialized(async () => { await this.prepare(); return this.readCurrent(id); }); }
+  hasTask(id: string): Promise<boolean> {
+    return serialized(async () => {
+      await this.prepare();
+      if (!this.directory) return false;
+      try { await this.readCurrent(id); return true; }
+      catch (error) { if (error instanceof TaskError && error.code === 'not_found') return false; throw error; }
+    });
+  }
+  inboxEntries(): Promise<{ entries: InboxEntry[]; diagnostics: Diagnostic[] }> {
+    return serialized(async () => { await this.prepare(); return this.readInbox(); });
+  }
+  /** Moves every valid inbox document into the task directory; a file leaves the inbox only once. */
+  importInbox(): Promise<{ imported: TaskRecord[]; diagnostics: Diagnostic[] }> {
+    return serialized(async () => {
+      await this.prepare(); this.configured();
+      const inbox = await this.readInbox();
+      const diagnostics = [...inbox.diagnostics];
+      if (!inbox.entries.length) return { imported: [], diagnostics };
+      const state = await this.scan();
+      const existingIds = new Set(state.tasks.map(record => record.task.id));
+      const seen = new Set<string>();
+      let candidates = inbox.entries.filter(entry => {
+        if (seen.has(entry.task.id)) {
+          diagnostics.push({ path: entry.path, message: `Task ID ${entry.task.id} is also used by another inbox file.` });
+          return false;
+        }
+        seen.add(entry.task.id);
+        if (!existingIds.has(entry.task.id)) return true;
+        diagnostics.push({ path: entry.path, message: `Task ID ${entry.task.id} already exists.` });
+        return false;
+      });
+      // A parent may itself be another inbox file; drop invalid candidates until stable.
+      for (;;) {
+        const tasks = [...state.tasks.map(record => record.task), ...candidates.map(entry => entry.task)];
+        const invalid = candidates.filter(entry => parentError(entry.task, tasks));
+        if (!invalid.length) break;
+        for (const entry of invalid) diagnostics.push({ path: entry.path, message: parentError(entry.task, tasks)! });
+        const ids = new Set(invalid.map(entry => entry.task.id));
+        candidates = candidates.filter(entry => !ids.has(entry.task.id));
+      }
+      const imported: TaskRecord[] = [];
+      for (const entry of candidates) {
+        try {
+          const path = await this.importFile(entry);
+          imported.push({ task: entry.task, content: entry.content, version: entry.version, path });
+        } catch (error) {
+          diagnostics.push({ path: entry.path, message: (error as Error).message });
+        }
+      }
+      if (imported.length) this.notify();
+      return { imported, diagnostics };
+    });
+  }
+  private async importFile(entry: InboxEntry): Promise<string> {
+    for (const length of ID_LENGTHS) {
+      const target = join(this.directory, taskFilename(entry.task.title, entry.task.id, length));
+      let created = false;
+      try {
+        const file = await open(target, 'wx', 0o600);
+        created = true;
+        try { await file.writeFile(entry.content, 'utf8'); await file.sync(); } finally { await file.close(); }
+        try { await unlink(entry.path); }
+        catch (error) { await unlink(target).catch(() => {}); throw error; }
+        return target;
+      } catch (error) {
+        if (created) await unlink(target).catch(() => {});
+        if (code(error) === 'EEXIST') continue;
+        throw error;
+      }
+    }
+    throw new TaskError('filename_conflict', 'Could not find a unique task filename.');
+  }
   create(input: CreateTaskInput): Promise<TaskRecord> {
     return serialized(async () => {
       await this.prepare(); this.configured();
@@ -408,6 +527,8 @@ export class TaskFiles {
       return [...doomed];
     });
   }
+  /** Stable partition key for local state tied to the current task directory. */
+  homeKey(): string { return this.directory ? this.bindingKey() : ''; }
   private bindingKey(): string { return hash(this.directory); }
   private async bindingData(): Promise<BindingData> {
     const data = await json(join(this.localDirectory, 'bindings.json')) ?? {};

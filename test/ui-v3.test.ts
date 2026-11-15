@@ -18,7 +18,7 @@ function record(id: string, changes: Partial<Task> = {}, path = `/home/test-${++
   return { task: { id, title: `Task ${id}`, status: 'todo', parent: null, order: 0, archived: false, body: '# Saved body', ...changes }, content: '', version: 'v1', path };
 }
 function fixture(records = [record('a')]) {
-  let state: State = { settings: { homeDirectory: '/home', homeWorkspaceId: 'home', tasksDirectory: 'tasks' }, tasks: records, diagnostics: [] };
+  let state: State = { settings: { homeDirectory: '/home', homeWorkspaceId: 'home', tasksDirectory: 'tasks' }, tasks: records, diagnostics: [], inbox: { directory: 'inbox', pending: 0, diagnostics: [] } };
   const listeners = new Set<() => void>();
   const updates: { id: string; changes: TaskChanges; version: string }[] = [];
   const emit = () => { for (const fn of listeners) fn(); };

@@ -25,7 +25,19 @@ export interface HomeSettings {
 }
 
 export interface Diagnostic { path: string; message: string }
-export interface State { settings: HomeSettings; tasks: TaskRecord[]; diagnostics: Diagnostic[] }
+export interface InboxEntry {
+  name: string;
+  path: string;
+  content: string;
+  version: string;
+  task: Task;
+}
+export interface InboxState {
+  directory: string;
+  pending: number;
+  diagnostics: Diagnostic[];
+}
+export interface State { settings: HomeSettings; tasks: TaskRecord[]; diagnostics: Diagnostic[]; inbox: InboxState }
 export interface CreateTaskInput { title: string; parent?: string | null; body?: string }
 export type TaskChanges = Partial<Omit<Task, 'id'>>;
 

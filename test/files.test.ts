@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { TaskFiles } from '../src/core/files.js';
+import { createDocument } from '../src/core/document.js';
 import { TaskError, type HomeSettings } from '../src/types.js';
 
 async function fixture(t: TestContext) {
@@ -27,7 +28,10 @@ const errorCode = (expected: string) => (error: unknown) => error instanceof Tas
 test('unconfigured Home has empty state; settings persist and custom directory stays inside Home', async t => {
   const { files, home, localDirectory, settings } = await fixture(t);
   await files.configure({ homeDirectory: '', homeWorkspaceId: null, tasksDirectory: 'tasks' });
-  assert.deepEqual(await files.state(), { settings: { homeDirectory: '', homeWorkspaceId: null, tasksDirectory: 'tasks' }, tasks: [], diagnostics: [] });
+  assert.deepEqual(await files.state(), {
+    settings: { homeDirectory: '', homeWorkspaceId: null, tasksDirectory: 'tasks' },
+    tasks: [], diagnostics: [], inbox: { directory: 'inbox', pending: 0, diagnostics: [] },
+  });
   await assert.rejects(files.create({ title: 'No Home' }), errorCode('not_configured'));
   await files.configure({ ...settings, tasksDirectory: 'notes/work' });
   const record = await files.create({ title: 'Here' });
@@ -306,4 +310,50 @@ test('duplicate titles remain distinct and old UUID filenames stay readable', as
   await rename(first.path, legacyPath);
   assert.equal((await files.read(first.task.id)).path, legacyPath);
   assert.equal((await files.state()).tasks.find(record => record.task.id === first.task.id)!.path, legacyPath);
+});
+
+test('inbox imports valid task documents once and leaves malformed files diagnosed', async t => {
+  const { files, home } = await fixture(t);
+  const inbox = join(home, 'tasks', 'inbox');
+  const queued = createDocument({ id: randomUUID(), title: 'Queued', status: 'todo', parent: null, order: 0, archived: false, body: 'do it' });
+  await writeFile(join(inbox, 'queued.md'), queued);
+  await writeFile(join(inbox, 'bad.md'), '---\ntaskmd: 0.3\nid: not-a-uuid\n---\n');
+  const snapshot = await files.inboxEntries();
+  assert.equal(snapshot.entries.length, 1);
+  assert.equal(snapshot.diagnostics.length, 1);
+  assert.equal((await files.state()).inbox.pending, 1);
+  const result = await files.importInbox();
+  assert.equal(result.imported.length, 1);
+  assert.equal(result.imported[0]!.task.title, 'Queued');
+  assert.equal(result.imported[0]!.task.body, 'do it');
+  assert.equal((await files.state()).tasks.length, 1);
+  assert.equal((await files.state()).inbox.pending, 0);
+  await assert.rejects(readFile(join(inbox, 'queued.md')), { code: 'ENOENT' });
+  assert.equal((await files.importInbox()).imported.length, 0);
+  assert.ok((await files.state()).inbox.diagnostics.some(item => item.path.endsWith('bad.md')));
+});
+
+test('inbox refuses an existing task ID and keeps the file for inspection', async t => {
+  const { files, home } = await fixture(t);
+  const existing = await files.create({ title: 'Existing' });
+  const inbox = join(home, 'tasks', 'inbox');
+  await writeFile(join(inbox, 'copy.md'), existing.content);
+  const result = await files.importInbox();
+  assert.equal(result.imported.length, 0);
+  assert.ok(result.diagnostics.some(item => item.message.includes('already exists')));
+  await assert.doesNotReject(readFile(join(inbox, 'copy.md')));
+  assert.equal((await files.state()).tasks.length, 1);
+});
+
+test('external inbox additions notify subscribers', async t => {
+  const { files, home } = await fixture(t);
+  await files.init();
+  const notification = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => { unsubscribe(); reject(new Error('No inbox-change notification')); }, 4000);
+    const unsubscribe = files.subscribe(() => { clearTimeout(timeout); unsubscribe(); resolve(); });
+  });
+  const queued = createDocument({ id: randomUUID(), title: 'Notify', status: 'todo', parent: null, order: 0, archived: false, body: '' });
+  await writeFile(join(home, 'tasks', 'inbox', 'notify.md'), queued);
+  await notification;
+  assert.equal((await files.inboxEntries()).entries.length, 1);
 });

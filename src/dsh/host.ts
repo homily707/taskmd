@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-api-gateway';
 import type {} from '@deepseek-ai/dsh-api-remote-access';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import { TaskFiles } from '../core/files.js';
+import { InboxAutoLauncher, type AutoLaunchSessionController } from './auto-launch.js';
 import { TaskError, type Attachment, type CreateTaskInput, type HomeSettings, type State, type TaskChanges, type TaskRecord, type TaskSessionBinding } from '../types.js';
 import type { TaskmdChange, TaskmdRemote, TaskmdFileError } from './remote.js';
 import { registerTaskTools } from './tools.js';
@@ -35,25 +36,35 @@ export default class TaskmdHost extends TypertRemoteService implements TaskmdRem
   static inject = ['typertGateway', 'remoteAccess', 'profileContext'];
   static Config = z.object({});
   private readonly files: TaskFiles;
+  private readonly launcher: InboxAutoLauncher;
   private readonly initialized: PromiseLike<unknown>;
   private readonly lifetime = new AbortController();
   private readonly pending = new Set<Promise<unknown>>();
+  private sessionController?: AutoLaunchSessionController;
 
   constructor(ctx: Context) {
     super(ctx, 'taskmd');
     // dsh-app-boot provides ProfileContext before the profile plugin tree.
     const profile = ctx.get('profileContext') as { dir: string };
-    this.files = new TaskFiles({ localDirectory: join(profile.dir, 'data', 'taskmd') });
+    const localDirectory = join(profile.dir, 'data', 'taskmd');
+    this.files = new TaskFiles({ localDirectory });
+    this.launcher = new InboxAutoLauncher(this.files, localDirectory, () => this.sessionController);
     this.initialized = ctx.effect(async () => {
-      try { await this.files.init(); } catch (error) { this.files.close(); throw error; }
+      try { await this.files.init(); this.launcher.start(); } catch (error) { this.files.close(); throw error; }
       return async () => {
         this.lifetime.abort();
+        this.launcher.close();
         await Promise.allSettled([...this.pending]);
         this.files.close();
       };
     }, 'taskmd: files and change stream');
     registerTaskTools(ctx, this);
     this.watchForks(ctx);
+    ctx.inject(['sessionController'], scope => {
+      this.sessionController = scope.get('sessionController') as AutoLaunchSessionController | undefined;
+      this.launcher.kick();
+      return () => { this.sessionController = undefined; };
+    });
   }
 
   /**
@@ -111,7 +122,9 @@ export default class TaskmdHost extends TypertRemoteService implements TaskmdRem
   @Remote('state')
   state(): Promise<State> { return this.run(() => this.files.state()); }
   @Remote('configure')
-  configure(settings: HomeSettings): Promise<State> { return this.run(() => this.files.configure(settings)); }
+  configure(settings: HomeSettings): Promise<State> {
+    return this.run(() => this.files.configure(settings).finally(() => this.launcher.kick()));
+  }
   @Remote('read')
   read(taskId: string): Promise<TaskRecord> { return this.run(() => this.files.read(taskId)); }
   @Remote('create')

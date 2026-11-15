@@ -28,7 +28,12 @@ export const changesSchema = z.strictObject({
 export const createSchema = z.strictObject({ title: z.string(), parent: z.string().nullable().optional(), body: z.string().optional() });
 const task = z.strictObject({ id: z.string(), title: z.string(), status: z.enum(['todo', 'in_progress', 'done', 'canceled']), parent: z.string().nullable(), order: z.number(), archived: z.boolean(), body: z.string() });
 const record = z.strictObject({ task, content: z.string(), version: z.string(), path: z.string() });
-const state = z.strictObject({ settings: settingsSchema, tasks: z.array(record), diagnostics: z.array(z.strictObject({ path: z.string(), message: z.string() })) });
+const state = z.strictObject({
+  settings: settingsSchema,
+  tasks: z.array(record),
+  diagnostics: z.array(z.strictObject({ path: z.string(), message: z.string() })),
+  inbox: z.strictObject({ directory: z.string(), pending: z.number(), diagnostics: z.array(z.strictObject({ path: z.string(), message: z.string() })) }),
+});
 const binding = z.strictObject({ taskId: z.string(), sessionId: z.string(), createdAt: z.string(), lastOpenedAt: z.string().optional() });
 function codec(name: string, schema: z.ZodType): TypertRemoteCodecSpec { return { mode: 'strict', typeSymbol: `taskmd#${name}`, create: () => schema }; }
 function parameter(name: string, schema: z.ZodType, optional = false): TypertRemoteParameterSpec {
