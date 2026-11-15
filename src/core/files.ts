@@ -429,6 +429,14 @@ export class TaskFiles {
       return ((await this.bindingData())[this.bindingKey()] ?? []).filter(item => taskId === undefined || item.taskId === taskId);
     });
   }
+  /** The Task that currently owns one Session in this Home, if any. */
+  taskForSession(id: string): Promise<string | undefined> {
+    return serialized(async () => {
+      await this.prepare(); if (!this.directory) return undefined;
+      assertSessionId(id);
+      return (await this.bindingData())[this.bindingKey()]?.find(item => item.sessionId === id)?.taskId;
+    });
+  }
   bind(taskId: string, id: string): Promise<void> {
     return serialized(async () => {
       await this.prepare(); await this.readCurrent(taskId); assertSessionId(id);

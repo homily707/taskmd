@@ -154,6 +154,8 @@ test('bindings persist locally, partition by canonical task directory, and delet
   await files.bind(one.task.id, 'session-1');
   assert.equal((await files.bindings(one.task.id)).length, 1);
   assert.equal(await files.touch('missing'), false); assert.equal(await files.touch('session-1'), true);
+  assert.equal(await files.taskForSession('session-1'), one.task.id);
+  assert.equal(await files.taskForSession('missing'), undefined);
   assert.ok((await files.bindings(one.task.id))[0]?.lastOpenedAt);
   assert.equal((await files.read(one.task.id)).version, one.version);
   await files.configure({ ...settings, tasksDirectory: 'other' });

@@ -331,9 +331,8 @@ export function watchSessionForks(scope: DshAdapterScope, remote: TaskmdRemote, 
   };
   try { service.fork = wrapped; } catch { return () => {}; }
   const restore = () => {
-    if (service.fork !== wrapped) return;
     if (own) Object.defineProperty(service, 'fork', own);
-    else delete service.fork;
+    else { try { Reflect.deleteProperty(service, 'fork'); } catch { /* another wrapper owns it */ } }
   };
   if (lifetime.signal.aborted) restore();
   else lifetime.signal.addEventListener('abort', restore, { once: true });
