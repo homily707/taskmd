@@ -427,3 +427,53 @@ test('unavailable Home leaves explicit configuration controls accessible', async
   assert.equal(view.root.findAllByType(HomeConfiguration).length, 1);
   assert.equal(f.updates.length, 0);
 });
+
+
+test('review mode previews the scoped prompt and uses the selected model', async t => {
+  const target = record('review', { body: 'Only fix login timeout handling.' });
+  const sent: string[] = [];
+  const applied: unknown[] = [];
+  const capability = sessions({
+    catalog: async () => ({ default: { provider: 'p', model: 'default' }, routableProviders: ['p'],
+      groups: [{ id: 'p', name: 'Provider', models: [{ id: 'reviewer', name: 'Reviewer' }] }], failures: [] }),
+    selectModel: async (_sessionId, selection) => { applied.push(selection); },
+    send: async (_sessionId, value) => { sent.push(value); },
+  });
+  const view = await mount(t, createElement(TaskSessionLauncher, {
+    record: target, settings: fixture().state().settings, capability, save: async () => target, onChanged() {},
+  }));
+  const review = view.root.findByType('input').props.type === 'checkbox'
+    ? view.root.findByType('input')
+    : view.root.findAllByType('input').find(node => node.props.type === 'checkbox')!;
+  assert.equal(review.props.checked, false);
+  await act(async () => review.props.onChange({ target: { checked: true } }));
+  const prompt = view.root.findByProps({ 'aria-label': '自定义 Prompt' });
+  assert.match(prompt.props.value, /Only fix login timeout handling/);
+  assert.match(prompt.props.value, /只审查，不修改文件/);
+  assert.match(prompt.props.value, /仅选择与本任务有关的变更文件/);
+  const model = view.root.findAllByType('select').find(node => node.props.id && String(node.props.id).endsWith('-model'))!;
+  await act(async () => model.props.onChange({ target: { value: JSON.stringify(['p', 'reviewer']) } }));
+  await click(view, '保存并启动 Session');
+  assert.equal(sent.length, 1);
+  assert.match(sent[0]!, /只审查，不修改文件/);
+  assert.deepEqual(applied, [{ provider: 'p', model: 'reviewer' }]);
+});
+
+test('review mode resets custom prompt on mode switch and keeps normal launch intact', async t => {
+  const target = record('switch-review');
+  let sent = '';
+  const capability = sessions({ send: async (_id, value) => { sent = value; } });
+  const view = await mount(t, createElement(TaskSessionLauncher, {
+    record: target, settings: fixture().state().settings, capability, save: async () => target, onChanged() {},
+  }));
+  const review = view.root.findAllByType('input').find(node => node.props.type === 'checkbox')!;
+  const field = view.root.findByProps({ 'aria-label': '自定义 Prompt' });
+  await act(async () => field.props.onChange({ target: { value: 'custom review only' } }));
+  await act(async () => review.props.onChange({ target: { checked: true } }));
+  assert.match(view.root.findByProps({ 'aria-label': '自定义 Prompt' }).props.value, /只审查，不修改文件/);
+  await act(async () => review.props.onChange({ target: { checked: false } }));
+  assert.match(view.root.findByProps({ 'aria-label': '自定义 Prompt' }).props.value, /请根据任务正文开展工作/);
+  await click(view, '保存并启动 Session');
+  assert.match(sent, /请根据任务正文开展工作/);
+  assert.doesNotMatch(sent, /只审查，不修改文件/);
+});
