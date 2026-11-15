@@ -16,7 +16,7 @@ DSH Home 中的任务大纲、Markdown 和关联会话。点击有会话的任�
 
 ## 文件与规则
 
-任务保存在 `<Home>/<tasksDirectory>/<UUID>.md`，内容示例：
+任务保存在 `<Home>/<tasksDirectory>/<标题>--<短ID>.md`，文件名以标题开头、用短 ID 区分同名任务；任务身份以 frontmatter 的完整 `id` 为准。内容示例：
 
 ```yaml
 ---
@@ -34,6 +34,7 @@ archived: false
 此示例说明文件格式；创建任务请使用 UI 或 Agent 工具。格式标记用于识别文件，不是来源认证。
 
 - 四种状态为 `todo`、`in_progress`、`done`、`canceled`，独立切换，不级联。
+- 修改 `title` 会按新标题重命名 Markdown 文件；任务 `id`、父子关系和 Session 关联不变。
 - `parent` 表示大纲层级，不能引用不存在的父级或形成循环。
 - `order` 是整数；同级按 order、ID 排序。
 - 归档只改变当前任务的标记，普通视图隐藏其子树；恢复不改后代标记。
@@ -60,11 +61,11 @@ Markdown 阅读器支持标题、段落、列表、代码、强调、链接和�
 | `bindings` / `bind` / `unbind` | 查询与修改本机会话关联 |
 | `attachment` | 读取任务中的相对附件 |
 
-`update` 的 `changes` 只接受 title、status、parent、order、archived、body。任务创建后可继续使用普通文件工具编辑。工具不通过 CLI，不隐式创建或向 Session 发消息。
+`update` 的 `changes` 只接受 title、status、parent、order、archived、body。任务创建后可继续使用普通文件工具编辑。工具不隐式创建或向 Session 发消息。
 
 ## 0.3 的边界
 
-本版不兼容旧数据字段，也不自动迁移旧任务。移除了 task graph、依赖边、Ready、repo 字段、Asset 实体、CLI 和独立 Web 入口。旧任务目录不会因安装新版本而被改写。
+本版不兼容旧数据字段，也不自动迁移旧任务。移除了 task graph、依赖边、Ready、repo 字段、Asset 实体和独立 Web 入口。旧任务目录不会因安装新版本而被改写。
 
 需要 DSH `>=0.2.2-rc.3 <0.3.0`、Node.js 22 及以上。当前开发依赖与 DSH 0.2.2-rc.3 对齐。
 

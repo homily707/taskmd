@@ -8,7 +8,12 @@ export function subscribeLocal(key: string, listener: () => void): () => void {
   bucket.add(listener); listeners.set(key, bucket);
   return () => { bucket.delete(listener); if (!bucket.size) listeners.delete(key); };
 }
-export const draftKey = (record: TaskRecord) => `taskmd:0.3:draft:${record.path}`;
+/** Test isolation only; production drafts are scoped by task ID. */
+export function clearLocal(): void {
+  memory.clear(); listeners.clear();
+  try { globalThis.sessionStorage?.clear(); } catch { /* Ignore unavailable storage. */ }
+}
+export const draftKey = (record: TaskRecord) => `taskmd:0.3:draft:${record.task.id}`;
 export function loadLocal<T>(key: string): T | undefined {
   if (memory.has(key)) return memory.get(key) as T;
   try { const raw = globalThis.sessionStorage?.getItem(key); return raw ? JSON.parse(raw) as T : undefined; } catch { return; }

@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
@@ -11,6 +11,7 @@ import { outlineRows, movedOrder } from '../src/ui/outline-model.js';
 import { MarkdownPreview } from '../src/ui/markdown-preview.js';
 import { HomeConfiguration } from '../src/ui/settings.js';
 import { TaskProperties } from '../src/ui/task-properties.js';
+import { clearLocal } from '../src/ui/task-editing.js';
 
 let serial = 0;
 function record(id: string, changes: Partial<Task> = {}, path = `/home/test-${++serial}/tasks/${id}.md`): TaskRecord {
@@ -44,6 +45,7 @@ function fixture(records = [record('a')]) {
 function sessions(overrides: Partial<SessionCapability> = {}): SessionCapability {
   return { list: async () => [], open: async () => {}, create: async () => ({ sessionId: 's1' }), bind: async () => {}, unbind: async () => {}, workspaces: async () => [{ workspaceId: 'home', path: '/home', title: 'Home repo' }, { workspaceId: 'other', path: '/other', title: 'Other repo' }], ...overrides };
 }
+beforeEach(() => clearLocal());
 async function mount(t: { after(fn: () => void): void }, element: React.ReactElement) {
   let view!: ReactTestRenderer;
   await act(async () => { view = create(element); });

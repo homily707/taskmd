@@ -37,7 +37,7 @@ export function TaskmdApp({ port, sessions, initialTaskId, selectionToken, sessi
           {!!state.diagnostics.length && <details><summary>文件提示 · {state.diagnostics.length}</summary><ul>{state.diagnostics.map((item, index) => <li key={index}>{item.path}：{item.message}</li>)}</ul></details>}
         </aside>
         <div className="taskmd-detail-pane"><button className="taskmd-back" onClick={() => setDetail(false)}>返回任务大纲</button>
-          {record ? <TaskDetail key={record.path} record={record} state={state} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /> : <p className="taskmd-empty">选择任务，阅读 Markdown 正文。</p>}
+          {record ? <TaskDetail key={record.task.id} record={record} state={state} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /> : <p className="taskmd-empty">选择任务，阅读 Markdown 正文。</p>}
         </div>
       </div>
     </>}
@@ -97,7 +97,7 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
 export function TaskmdDetailPanel({ port, sessions, taskId, sessionId }: { port: TaskPort; sessions?: SessionCapability; taskId: string; sessionId?: string }) {
   const { state, error, refresh } = useTasks(port);
   const record = state?.tasks.find(item => item.task.id === taskId);
-  return <div className="taskmd-app"><style>{styles}</style>{error && <p role="alert">{error}</p>}{record && state ? <TaskDetail key={record.path} record={record} state={state} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /> : <p>{state ? '任务不存在或 Home 已切换。' : '正在读取任务…'}</p>}</div>;
+  return <div className="taskmd-app"><style>{styles}</style>{error && <p role="alert">{error}</p>}{record && state ? <TaskDetail key={record.task.id} record={record} state={state} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /> : <p>{state ? '任务不存在或 Home 已切换。' : '正在读取任务…'}</p>}</div>;
 }
 
 export function TaskmdSidebar({ port, sessions, sessionId, onOpenTask }: { port: TaskPort; sessions: SessionCapability; sessionId: string; onOpenTask(id: string): void }) {
@@ -110,7 +110,7 @@ export function TaskmdSidebar({ port, sessions, sessionId, onOpenTask }: { port:
   const records = state?.tasks.filter(record => ids.has(record.task.id)) ?? [];
   return <div className="taskmd-app taskmd-session-sidebar"><style>{styles}</style><h2>当前 Session 的任务</h2>
     {(error || agent.error || actionError) && <p role="alert">{error || agent.error || actionError}</p>}
-    {records.map(record => <details key={record.path} open><summary>{record.task.title}</summary><button onClick={() => onOpenTask(record.task.id)}>打开任务正文</button><TaskDetail record={record} state={state!} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /></details>)}
+    {records.map(record => <details key={record.task.id} open><summary>{record.task.title}</summary><button onClick={() => onOpenTask(record.task.id)}>打开任务正文</button><TaskDetail record={record} state={state!} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /></details>)}
     {!records.length && <p className="taskmd-muted">此 Session 尚未关联任务。</p>}
     <details><summary>关联任务到当前 Session</summary><label>任务<select aria-label="关联任务" value={selected} onChange={event => setSelected(event.target.value)}><option value="">选择任务</option>{state?.tasks.filter(record => !ids.has(record.task.id)).map(record => <option key={record.task.id} value={record.task.id}>{record.task.title}</option>)}</select></label><button disabled={!selected} onClick={() => void sessions.bind(selected, sessionId).then(agent.refresh).catch(cause => setActionError(failure(cause)))}>{bound.length ? '改绑当前 Session' : '关联到当前 Session'}</button></details>
   </div>;

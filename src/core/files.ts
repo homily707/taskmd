@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { mkdir, open, readdir, realpath, rename, stat, unlink } from 'node:fs/promises';
+import { link, mkdir, open, readdir, realpath, rename, stat, unlink } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { TaskError, type Attachment, type CreateTaskInput, type HomeSettings, type State, type Task, type TaskChanges, type TaskRecord, type TaskSessionBinding } from '../types.js';
@@ -22,6 +22,28 @@ function code(error: unknown): string | undefined { return (error as NodeJS.Errn
 function within(root: string, target: string): boolean {
   const suffix = relative(root, target);
   return suffix === '' || (!isAbsolute(suffix) && suffix !== '..' && !suffix.startsWith(`..${sep}`));
+}
+const ID_LENGTHS = [8, 12, 16, 20, 32, 36] as const;
+const MAX_TITLE_BYTES = 180;
+function clipBytes(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value) <= maxBytes) return value;
+  let result = '';
+  for (const char of value) {
+    if (Buffer.byteLength(result + char) > maxBytes) break;
+    result += char;
+  }
+  return result;
+}
+/** Stable, human-readable filename; the frontmatter UUID remains the task identity. */
+export function taskFilename(title: string, id: string, idLength = 8): string {
+  const cleaned = title
+    .replace(/[\u0000-\u001f\u007f/\\<>:"|?*]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '');
+  const clipped = clipBytes(cleaned, MAX_TITLE_BYTES).replace(/[. ]+$/g, '');
+  const base = clipped && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(clipped) ? clipped : `_${clipped || 'task'}`;
+  return `${base}--${id.slice(0, idLength)}.md`;
 }
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -192,15 +214,17 @@ export class TaskFiles {
     const state: State = { settings: { ...this.settings }, tasks: [], diagnostics: [] };
     if (!this.directory) return state;
     await this.assertDirectory();
+    const seen = new Map<string, string>();
     for (const name of (await readdir(this.directory)).sort()) {
       if (!name.endsWith('.md')) continue;
       const path = join(this.directory, name);
       try {
         const content = await text(path, MAX_DOCUMENT);
         if (!isManaged(content)) continue;
-        if (!UUID.test(name.slice(0, -3))) throw new TaskError('invalid_filename', 'Managed tasks require an exact UUID.md filename.');
         const task = parseTask(content);
-        if (task.id !== name.slice(0, -3)) throw new TaskError('invalid_filename', 'Task ID must match its filename.');
+        const previous = seen.get(task.id);
+        if (previous) throw new TaskError('duplicate_id', `Task ID ${task.id} is also used by ${previous}.`);
+        seen.set(task.id, name);
         state.tasks.push({ task, content, version: hash(content), path });
       } catch (error) {
         state.diagnostics.push({ path, message: (error as Error).message });
@@ -229,9 +253,35 @@ export class TaskFiles {
     });
   }
   private async prepareLocal(): Promise<void> { await mkdir(this.localDirectory, { recursive: true, mode: 0o700 }); }
+  /** Filenames are display labels; the frontmatter UUID is the lookup key. */
+  private async findPath(id: string): Promise<string> {
+    const names = (await readdir(this.directory)).sort();
+    const exact = `${id}.md`;
+    const short = id.slice(0, 8);
+    const candidates = names.filter(name => name.endsWith('.md') && (name === exact || name.includes(short)));
+    const inspect = async (name: string): Promise<string | undefined> => {
+      const path = join(this.directory, name);
+      try {
+        const content = await text(path, MAX_DOCUMENT);
+        if (isManaged(content) && parseTask(content).id === id) return path;
+        if (name === exact || candidates.length === 1) return path;
+      } catch { if (name === exact || candidates.length === 1) return path; }
+      return undefined;
+    };
+    for (const name of candidates) {
+      const path = await inspect(name);
+      if (path) return path;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.md') || candidates.includes(name)) continue;
+      const path = await inspect(name);
+      if (path) return path;
+    }
+    throw new TaskError('not_found', 'Task does not exist.');
+  }
   private async readCurrent(id: string, expected?: { version: string }): Promise<TaskRecord> {
     this.configured(); validateId(id); await this.assertDirectory();
-    const path = join(this.directory, `${id}.md`);
+    const path = await this.findPath(id);
     let content: string;
     try { content = await text(path, MAX_DOCUMENT); }
     catch (error) { if (code(error) === 'ENOENT') throw new TaskError('not_found', 'Task does not exist.'); throw error; }
@@ -257,12 +307,23 @@ export class TaskFiles {
       const content = createDocument(task);
       this.validateParent(task, state);
       await this.assertDirectory();
-      const path = join(this.directory, `${task.id}.md`);
-      const file = await open(path, 'wx', 0o600);
-      try { await file.writeFile(content, 'utf8'); await file.sync(); } finally { await file.close(); }
+      const path = await this.createFile(content, task.title, task.id);
       this.notify();
       return { task, content, version: hash(content), path };
     });
+  }
+  private async createFile(content: string, title: string, id: string): Promise<string> {
+    for (const length of ID_LENGTHS) {
+      const path = join(this.directory, taskFilename(title, id, length));
+      try {
+        const file = await open(path, 'wx', 0o600);
+        try { await file.writeFile(content, 'utf8'); await file.sync(); } finally { await file.close(); }
+        return path;
+      } catch (error) {
+        if (code(error) !== 'EEXIST') throw error;
+      }
+    }
+    throw new TaskError('filename_conflict', 'Could not find a unique task filename.');
   }
   private validateParent(task: Task, state: State): void {
     const message = parentError(task, [...state.tasks.filter(record => record.task.id !== task.id).map(record => record.task), task]);
@@ -271,6 +332,28 @@ export class TaskFiles {
   private async checkVersion(id: string, expectedVersion: string): Promise<TaskRecord> {
     return this.readCurrent(id, { version: expectedVersion });
   }
+  private async writeMoved(currentPath: string, content: string, title: string, id: string, expectedVersion: string): Promise<string> {
+    const directory = dirname(currentPath);
+    const temp = join(directory, `.taskmd-${randomUUID()}.tmp`);
+    try {
+      const file = await open(temp, 'wx', 0o600);
+      try { await file.writeFile(content, 'utf8'); await file.sync(); } finally { await file.close(); }
+      await this.checkVersion(id, expectedVersion);
+      for (const length of ID_LENGTHS) {
+        const target = join(directory, taskFilename(title, id, length));
+        if (target === currentPath) {
+          await atomicWrite(currentPath, content, async () => { await this.checkVersion(id, expectedVersion); });
+          return currentPath;
+        }
+        try { await link(temp, target); }
+        catch (error) { if (code(error) === 'EEXIST') continue; throw error; }
+        try { await unlink(currentPath); }
+        catch (error) { await unlink(target).catch(() => {}); throw error; }
+        return target;
+      }
+      throw new TaskError('filename_conflict', 'Could not find a unique task filename.');
+    } finally { await unlink(temp).catch(error => { if (code(error) !== 'ENOENT') throw error; }); }
+  }
   update(id: string, changes: TaskChanges, expectedVersion: string): Promise<TaskRecord> {
     return serialized(async () => {
       await this.prepare(); validateChanges(changes);
@@ -278,8 +361,10 @@ export class TaskFiles {
       const content = updateDocument(current.content, changes);
       const task = parseTask(content);
       this.validateParent(task, await this.scan());
-      await atomicWrite(current.path, content, async () => { await this.checkVersion(id, expectedVersion); });
-      this.notify(); return { task, content, version: hash(content), path: current.path };
+      const path = task.title !== current.task.title
+        ? await this.writeMoved(current.path, content, task.title, task.id, expectedVersion)
+        : await atomicWrite(current.path, content, async () => { await this.checkVersion(id, expectedVersion); }).then(() => current.path);
+      this.notify(); return { task, content, version: hash(content), path };
     });
   }
   remove(id: string, expectedVersion: string): Promise<void> {

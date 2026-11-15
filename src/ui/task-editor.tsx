@@ -17,7 +17,7 @@ export function useBodyDraft(record: TaskRecord, port: TaskPort, onChanged: () =
   useEffect(() => { setLatest(record); latestRef.current = record; }, [record]);
   useEffect(() => subscribeLocal(draftKey(record), () => {
     const next = readDraft(record); current.current = next; setDraft(next);
-  }), [record.path]);
+  }), [record.task.id]);
   const persist = (value?: BodyDraft) => {
     current.current = value; setDraft(value);
     setStorageWarning(!storeLocal(draftKey(record), value));

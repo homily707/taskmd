@@ -9,7 +9,7 @@ export interface LaunchProgress {
   requestId: string; text: string; workspaceId: string; preset: string; model?: ModelSelection;
   sessionId?: string; creating?: boolean; unknown?: boolean; bound?: boolean; modelApplied?: boolean; sent?: boolean; opened?: boolean;
 }
-const launchKey = (record: TaskRecord) => `taskmd:0.3:launch:${record.path}`;
+const launchKey = (record: TaskRecord) => `taskmd:0.3:launch:${record.task.id}`;
 const activeLaunches = new Set<string>();
 
 /** Each acknowledged stage is persisted before continuing; send retries retain the request identity. */

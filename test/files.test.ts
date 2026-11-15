@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
 import { mkdtemp, mkdir, readFile, realpath, writeFile, rm, rename, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { TaskFiles } from '../src/core/files.js';
 import { TaskError, type HomeSettings } from '../src/types.js';
@@ -31,7 +31,7 @@ test('unconfigured Home has empty state; settings persist and custom directory s
   await assert.rejects(files.create({ title: 'No Home' }), errorCode('not_configured'));
   await files.configure({ ...settings, tasksDirectory: 'notes/work' });
   const record = await files.create({ title: 'Here' });
-  assert.equal(record.path, join(await realpath(home), 'notes/work', `${record.task.id}.md`));
+  assert.equal(record.path, join(await realpath(home), 'notes/work', `Here--${record.task.id.slice(0, 8)}.md`));
   const reopened = new TaskFiles({ localDirectory }); t.after(() => reopened.close());
   await reopened.init();
   assert.equal((await reopened.state()).settings.tasksDirectory, 'notes/work');
@@ -41,7 +41,7 @@ test('unconfigured Home has empty state; settings persist and custom directory s
   assert.equal((await files.state()).settings.tasksDirectory, 'notes/work');
 });
 
-test('only marked UUID documents are imported and malformed managed files are diagnosed', async t => {
+test('only marked documents are imported and malformed managed files are diagnosed', async t => {
   const { files, home } = await fixture(t);
   const generated = await files.create({ title: 'Generated', body: '# Body\n' });
   assert.match(generated.content, /^---\ntaskmd: 0\.3\n/);
@@ -252,10 +252,52 @@ test('retrying deletion cleans stale bindings after the Markdown has already gon
   const { files, home } = await fixture(t);
   const record = await files.create({ title: 'Delete' });
   await files.bind(record.task.id, 'session');
-  assert.equal(record.path, join(await realpath(home), 'tasks', `${record.task.id}.md`));
+  assert.equal(record.path, join(await realpath(home), 'tasks', `Delete--${record.task.id.slice(0, 8)}.md`));
   await rm(record.path);
   assert.equal((await files.bindings()).length, 1);
   await files.remove(record.task.id, record.version);
   await files.remove(record.task.id, record.version);
   assert.deepEqual(await files.bindings(), []);
+});
+
+test('filenames use the title with a short ID while the frontmatter UUID stays canonical', async t => {
+  const { files } = await fixture(t);
+  const record = await files.create({ title: '设计方案/第一版', body: 'body' });
+  assert.equal(basename(record.path), `设计方案-第一版--${record.task.id.slice(0, 8)}.md`);
+  assert.equal((await files.read(record.task.id)).task.id, record.task.id);
+  assert.equal((await files.state()).tasks[0]!.path, record.path);
+});
+
+test('title changes rename the file without changing task identity or bindings', async t => {
+  const { files } = await fixture(t);
+  const record = await files.create({ title: 'Old title' });
+  await files.bind(record.task.id, 'session-1');
+  const updated = await files.update(record.task.id, { title: 'New title' }, record.version);
+  assert.equal(basename(updated.path), `New title--${record.task.id.slice(0, 8)}.md`);
+  assert.notEqual(updated.path, record.path);
+  await assert.rejects(readFile(record.path), { code: 'ENOENT' });
+  assert.equal((await files.read(record.task.id)).task.title, 'New title');
+  assert.equal((await files.bindings(record.task.id))[0]!.sessionId, 'session-1');
+});
+
+test('duplicate task IDs are diagnosed instead of listing the task twice', async t => {
+  const { files, home } = await fixture(t);
+  const record = await files.create({ title: 'Unique' });
+  await writeFile(join(home, 'tasks', 'copy.md'), record.content);
+  const state = await files.state();
+  assert.equal(state.tasks.length, 1);
+  assert.ok(state.diagnostics.some(item => item.message.includes('duplicate_id') || item.message.includes('also used')));
+});
+
+test('duplicate titles remain distinct and old UUID filenames stay readable', async t => {
+  const { files } = await fixture(t);
+  const first = await files.create({ title: 'Same' });
+  const second = await files.create({ title: 'Same' });
+  assert.notEqual(first.path, second.path);
+  assert.match(basename(first.path), /^Same--[0-9a-f]{8}\.md$/);
+  assert.match(basename(second.path), /^Same--[0-9a-f]{8}\.md$/);
+  const legacyPath = join(dirname(first.path), `${first.task.id}.md`);
+  await rename(first.path, legacyPath);
+  assert.equal((await files.read(first.task.id)).path, legacyPath);
+  assert.equal((await files.state()).tasks.find(record => record.task.id === first.task.id)!.path, legacyPath);
 });
