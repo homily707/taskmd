@@ -3,7 +3,7 @@ import { link, mkdir, open, readdir, realpath, rename, stat, unlink } from 'node
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { TaskError, type Attachment, type CreateTaskInput, type Diagnostic, type HomeSettings, type InboxEntry, type State, type Task, type TaskChanges, type TaskRecord, type TaskSessionBinding } from '../types.js';
-import { createDocument, hash, isManaged, MAX_DOCUMENT, parseTask, updateDocument, UUID, validateChanges, validateId } from './document.js';
+import { createDocument, hash, isManaged, MAX_DOCUMENT, parseInboxDocument, parseTask, updateDocument, UUID, validateChanges, validateId, validateTask } from './document.js';
 
 const defaults: HomeSettings = { homeDirectory: '', homeWorkspaceId: null, tasksDirectory: 'tasks' };
 /** Only files placed in this directory below the task directory trigger import and Session launch. */
@@ -138,6 +138,7 @@ export class TaskFiles {
   private home = '';
   private directory = '';
   private inbox = '';
+  private readonly inboxIds = new Map<string, string>();
   private listeners = new Set<() => void>();
   private timer?: ReturnType<typeof setInterval>;
   private fingerprint?: string;
@@ -265,8 +266,17 @@ export class TaskFiles {
       try {
         const content = await text(path, MAX_DOCUMENT);
         if (!isManaged(content)) { result.diagnostics.push({ path, message: 'Not a taskmd task.' }); continue; }
-        const task = parseTask(content);
-        result.entries.push({ name, path, content, version: hash(content), task });
+        const draft = parseInboxDocument(content);
+        const id = draft.id ?? this.inboxIds.get(path) ?? randomUUID();
+        if (!draft.id) this.inboxIds.set(path, id);
+        const task: Task = {
+          id, title: draft.title, status: draft.status ?? 'todo', parent: draft.parent ?? null,
+          order: draft.order ?? 0, archived: draft.archived ?? false, body: draft.body,
+        };
+        validateTask(task);
+        const materialize = draft.id === undefined || draft.status === undefined || draft.parent === undefined
+          || draft.order === undefined || draft.archived === undefined;
+        result.entries.push({ name, path, content, version: hash(content), task, materialize, autoOrder: draft.order === undefined });
       } catch (error) {
         result.diagnostics.push({ path, message: (error as Error).message });
       }
@@ -382,11 +392,19 @@ export class TaskFiles {
         const ids = new Set(invalid.map(entry => entry.task.id));
         candidates = candidates.filter(entry => !ids.has(entry.task.id));
       }
+      const nextOrder = new Map<string | null, number>();
+      for (const record of state.tasks) nextOrder.set(record.task.parent, Math.max(nextOrder.get(record.task.parent) ?? -1, record.task.order));
+      for (const entry of candidates) {
+        if (!entry.autoOrder) continue;
+        const order = (nextOrder.get(entry.task.parent) ?? -1) + 1;
+        entry.task = { ...entry.task, order };
+        nextOrder.set(entry.task.parent, order);
+      }
       const imported: TaskRecord[] = [];
       for (const entry of candidates) {
         try {
-          const path = await this.importFile(entry);
-          imported.push({ task: entry.task, content: entry.content, version: entry.version, path });
+          const file = await this.importFile(entry);
+          imported.push({ task: entry.task, content: file.content, version: file.version, path: file.path });
         } catch (error) {
           diagnostics.push({ path: entry.path, message: (error as Error).message });
         }
@@ -395,17 +413,18 @@ export class TaskFiles {
       return { imported, diagnostics };
     });
   }
-  private async importFile(entry: InboxEntry): Promise<string> {
+  private async importFile(entry: InboxEntry): Promise<{ path: string; content: string; version: string }> {
+    const content = entry.materialize ? createDocument(entry.task) : entry.content;
     for (const length of ID_LENGTHS) {
       const target = join(this.directory, taskFilename(entry.task.title, entry.task.id, length));
       let created = false;
       try {
         const file = await open(target, 'wx', 0o600);
         created = true;
-        try { await file.writeFile(entry.content, 'utf8'); await file.sync(); } finally { await file.close(); }
+        try { await file.writeFile(content, 'utf8'); await file.sync(); } finally { await file.close(); }
         try { await unlink(entry.path); }
         catch (error) { await unlink(target).catch(() => {}); throw error; }
-        return target;
+        return { path: target, content, version: hash(content) };
       } catch (error) {
         if (created) await unlink(target).catch(() => {});
         if (code(error) === 'EEXIST') continue;

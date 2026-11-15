@@ -16,7 +16,22 @@ DSH Home 中的任务大纲、Markdown 和关联会话。点击有会话的任�
 
 ## 文件与规则
 
-任务保存在 `<Home>/<tasksDirectory>/<标题>--<短ID>.md`，文件名以标题开头、用短 ID 区分同名任务；任务身份以 frontmatter 的完整 `id` 为准。Inbox 固定为 `<tasksDirectory>/inbox/`：合法任务文档会被移动到任务目录并创建、绑定一个 Session，随后发送任务快照；移动即一次性领取，重启不会重复创建。内容示例：
+任务保存在 `<Home>/<tasksDirectory>/<标题>--<短ID>.md`，文件名以标题开头、用短 ID 区分同名任务；任务身份以 frontmatter 的完整 `id` 为准。Inbox 固定为 `<tasksDirectory>/inbox/`：合法任务文档会被移动到任务目录并创建、绑定一个 Session，随后发送任务快照；移动即一次性领取，重启不会重复创建。
+
+Inbox 最小格式只需要 `taskmd` 和 `title`，文件名建议与标题相同，其余字段自动填充：
+
+```markdown
+---
+taskmd: 0.3
+title: 我的任务
+---
+
+在这里写任务正文。
+```
+
+导入时会生成 `id`，并填充 `status: todo`、`parent: null`、`order` 和 `archived: false`；也可以继续按完整格式显式指定这些字段。
+
+完整内容示例：
 
 ```yaml
 ---

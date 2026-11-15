@@ -41,8 +41,7 @@ test('inbox launch creates, binds, and sends exactly one task snapshot per file'
   const f = await fixture(t);
   const calls = { created: [] as unknown[], prompts: [] as unknown[] };
   const launcher = new InboxAutoLauncher(f.files, f.local, () => controller(calls));
-  const task = createDocument({ id: randomUUID(), title: 'Auto task', status: 'todo', parent: null, order: 0, archived: false, body: 'Implement the thing.' });
-  await writeFile(join(f.home, 'tasks', 'inbox', 'auto.md'), task);
+  await writeFile(join(f.home, 'tasks', 'inbox', 'Auto task.md'), '---\ntaskmd: 0.3\ntitle: Auto task\n---\n\nImplement the thing.\n');
 
   await launcher.pump();
   let state = await f.files.state();

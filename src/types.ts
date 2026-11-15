@@ -31,6 +31,10 @@ export interface InboxEntry {
   content: string;
   version: string;
   task: Task;
+  /** Missing fields are filled with generated values when the file is imported. */
+  materialize: boolean;
+  /** The order was omitted and is assigned among its siblings on import. */
+  autoOrder: boolean;
 }
 export interface InboxState {
   directory: string;

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isMap, parseDocument, stringify } from 'yaml';
-import { TaskError, type Task, type TaskChanges } from '../types.js';
+import { TaskError, type Task, type TaskChanges, type TaskStatus } from '../types.js';
 
 export const MAX_DOCUMENT = 1024 * 1024;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -55,6 +55,42 @@ function parse(content: string) {
   return { task, document, ...split };
 }
 export function parseTask(content: string): Task { return parse(content).task; }
+
+/** The minimal inbox document: only `taskmd` and `title` are required. */
+export interface InboxDraft {
+  id?: string;
+  title: string;
+  status?: TaskStatus;
+  parent?: string | null;
+  order?: number;
+  archived?: boolean;
+  body: string;
+}
+export function parseInboxDocument(content: string): InboxDraft {
+  const split = parts(content);
+  const document = parseDocument(split.yaml, { schema: 'core', uniqueKeys: true, resolveKnownTags: false });
+  if (document.errors.length || document.warnings.length || !isMap(document.contents)) invalid('Invalid task YAML.');
+  let data: Record<string, unknown>;
+  try { data = document.toJS({ maxAliasCount: 0 }) as Record<string, unknown>; }
+  catch { invalid('YAML aliases are not supported.'); }
+  if (data.taskmd !== 0.3 && data.taskmd !== '0.3') invalid('Unsupported taskmd format marker.');
+  for (const key of Object.keys(data)) if (!fields.has(key)) invalid(`Unknown task field: ${key}.`);
+  if (typeof data.title !== 'string' || !data.title.trim()) invalid('Title must be a nonempty string.');
+  if (data.id !== undefined) validateId(data.id);
+  if (data.status !== undefined && !['todo', 'in_progress', 'done', 'canceled'].includes(data.status as string)) invalid('Invalid task status.');
+  if (data.parent !== undefined && data.parent !== null) validateId(data.parent);
+  if (data.order !== undefined && !Number.isSafeInteger(data.order)) invalid('Order must be a safe integer.');
+  if (data.archived !== undefined && typeof data.archived !== 'boolean') invalid('Archived must be a boolean.');
+  return {
+    title: data.title,
+    body: split.body,
+    ...(data.id !== undefined ? { id: data.id as string } : {}),
+    ...(data.status !== undefined ? { status: data.status as TaskStatus } : {}),
+    ...(data.parent !== undefined ? { parent: data.parent as string | null } : {}),
+    ...(data.order !== undefined ? { order: data.order as number } : {}),
+    ...(data.archived !== undefined ? { archived: data.archived as boolean } : {}),
+  };
+}
 export function createDocument(task: Task): string {
   validateTask(task);
   const { body, ...metadata } = task;

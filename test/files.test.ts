@@ -333,6 +333,25 @@ test('inbox imports valid task documents once and leaves malformed files diagnos
   assert.ok((await files.state()).inbox.diagnostics.some(item => item.path.endsWith('bad.md')));
 });
 
+test('inbox accepts a minimal taskmd document and fills missing metadata', async t => {
+  const { files, home } = await fixture(t);
+  await writeFile(join(home, 'tasks', 'inbox', 'Minimal task.md'), '---\ntaskmd: 0.3\ntitle: Minimal task\n---\n\nOnly body.\n');
+  const entries = await files.inboxEntries();
+  assert.equal(entries.entries.length, 1);
+  const draft = entries.entries[0]!;
+  assert.equal(draft.task.title, 'Minimal task');
+  assert.equal(draft.task.status, 'todo');
+  assert.equal(draft.task.parent, null);
+  assert.equal(draft.task.archived, false);
+  assert.match(draft.task.id, /^[0-9a-f-]{36}$/);
+  const result = await files.importInbox();
+  assert.equal(result.imported.length, 1);
+  assert.equal(result.imported[0]!.task.id, draft.task.id);
+  assert.match(result.imported[0]!.content, /^---\ntaskmd: 0\.3\nid: /);
+  assert.match(result.imported[0]!.content, /\nstatus: todo\n/);
+  assert.equal(result.imported[0]!.task.body, '\nOnly body.\n');
+});
+
 test('inbox refuses an existing task ID and keeps the file for inspection', async t => {
   const { files, home } = await fixture(t);
   const existing = await files.create({ title: 'Existing' });
