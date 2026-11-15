@@ -1,8 +1,8 @@
 {
   "name": "taskmd",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": false,
-  "description": "Markdown task graphs, CLI and DeepSeek Harness plugin",
+  "description": "DSH Home task outline, Markdown and Agent conversations",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -10,7 +10,8 @@
     "url": "git+https://github.com/homily707/taskmd.git"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": ">=0.2.2-rc.3 <0.3.0"
   },
   "main": "./lib/index.js",
   "exports": {
@@ -23,17 +24,11 @@
   },
   "files": [
     "lib/",
-    "bin/",
     "locale/*.json",
     "icon.svg",
     "cordis.patch.yml"
   ],
-  "bin": {
-    "taskmd": "./bin/taskmd.mjs"
-  },
   "scripts": {
-    "taskmd": "node bin/taskmd.mjs",
-    "serve": "node bin/taskmd.mjs serve",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
@@ -57,11 +52,12 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/dsh-typert-protocol": ">=0.2.1-rc.3 <0.3.0",
-    "@deepseek-ai/schemastery": "~3.18.5",
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.3 <0.3.0",
+    "@deepseek-ai/schemastery": "~3.19.0",
     "react": ">=18.2.0 <20",
-    "react-dom": ">=18.2.0 <20"
+    "react-dom": ">=18.2.0 <20",
+    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.3 <0.3.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -78,32 +74,29 @@
     },
     "react-dom": {
       "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
     }
   },
   "devDependencies": {
-    "@atomic-editor/editor": "0.6.2",
-    "@deepseek-ai/dsh-api-gateway": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-api-remote-access": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-client-store": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-session": "0.2.1-rc.5",
-    "@types/dagre": "^0.7.52",
+    "@deepseek-ai/dsh-api-gateway": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-api-remote-access": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-client-store": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.3",
     "@types/node": "^22.15.0",
-    "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@types/react-test-renderer": "^18.3.1",
-    "@xyflow/react": "^12.8.5",
-    "commander": "^13.1.0",
-    "dagre": "^0.8.5",
     "esbuild": "^0.25.0",
-    "fractional-indexing": "^3.2.0",
-    "proper-lockfile": "^4.1.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-test-renderer": "18.3.1",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0",
     "yaml": "^2.8.0",
-    "zod": "^4.6.7"
+    "zod": "4.6.6",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.3"
   }
 }

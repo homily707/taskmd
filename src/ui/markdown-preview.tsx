@@ -1,7 +1,24 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import type { Attachment } from '../types.js';
+import type { TaskPort } from './port.js';
+import { failure } from './shared.js';
 
-/** A deliberately small, safe Markdown reader for the compact sidebar preview. */
-export function MarkdownPreview({ text }: { text: string }) {
+function AttachmentView({ href, label, image, taskId, port }: { href: string; label: string; image: boolean; taskId: string; port: TaskPort }) {
+  const [attachment, setAttachment] = useState<Attachment>();
+  const [error, setError] = useState('');
+  const [opened, setOpened] = useState(image);
+  useEffect(() => {
+    if (!opened) return;
+    let active = true;
+    void port.readAttachment(taskId, href).then(value => { if (active) setAttachment(value); }, cause => { if (active) setError(failure(cause)); });
+    return () => { active = false; };
+  }, [port, taskId, href, opened]);
+  const content = attachment?.dataUrl ? <img src={attachment.dataUrl} alt={label} loading="lazy" /> : attachment?.content !== undefined ? <code className="taskmd-attachment-text" tabIndex={0} role="region" aria-label={label}>{attachment.content}</code> : <span>{error || '正在读取附件…'}</span>;
+  return image ? content : <span className="taskmd-attachment"><button onClick={() => setOpened(value => !value)} aria-expanded={opened}>{label}</button>{opened && content}</span>;
+}
+
+/** Markdown is rendered as React text nodes; raw HTML and executable URLs stay inert. */
+export function MarkdownPreview({ text, taskId, port }: { text: string; taskId?: string; port?: TaskPort }) {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
   let index = 0;
@@ -9,7 +26,7 @@ export function MarkdownPreview({ text }: { text: string }) {
 
   const inline = (value: string): ReactNode[] => {
     const result: ReactNode[] = [];
-    const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
+    const pattern = /(`[^`]+`|\*\*[^*]+\*\*|!?\[[^\]]*\]\([^)]+\))/g;
     let cursor = 0;
     for (const match of value.matchAll(pattern)) {
       if (match.index! > cursor) result.push(value.slice(cursor, match.index));
@@ -17,10 +34,14 @@ export function MarkdownPreview({ text }: { text: string }) {
       if (token.startsWith('`')) result.push(<code key={`c${key++}`}>{token.slice(1, -1)}</code>);
       else if (token.startsWith('**')) result.push(<strong key={`b${key++}`}>{token.slice(2, -2)}</strong>);
       else {
-        const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
-        result.push(link && /^https?:\/\//i.test(link[2]!)
-          ? <a key={`l${key++}`} href={link[2]!} target="_blank" rel="noreferrer">{link[1]}</a>
-          : link?.[1] ?? token);
+        const link = /^(!?)\[([^\]]*)\]\(([^)]+)\)$/.exec(token);
+        const href = link?.[3]?.trim() ?? '';
+        const image = link?.[1] === '!';
+        const label = link?.[2] ?? token;
+        const relative = !!href && !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(href);
+        if (/^https?:\/\//i.test(href)) result.push(image ? <img key={`i${key++}`} src={href} alt={label} loading="lazy" /> : <a key={`l${key++}`} href={href} target="_blank" rel="noreferrer">{label}</a>);
+        else if (relative && taskId && port) result.push(<AttachmentView key={`${taskId}:${href}:${key++}`} href={href} label={label} image={image} taskId={taskId} port={port} />);
+        else result.push(label);
       }
       cursor = match.index! + token.length;
     }
@@ -38,7 +59,7 @@ export function MarkdownPreview({ text }: { text: string }) {
       index += 1;
       while (index < lines.length && !/^```/.test(lines[index]!)) body.push(lines[index++]!);
       index += 1;
-      blocks.push(<pre key={`f${key++}`}><code>{body.join('\n')}</code></pre>);
+      blocks.push(<pre key={`f${key++}`} tabIndex={0} role="region" aria-label="代码块"><code>{body.join('\n')}</code></pre>);
       continue;
     }
 

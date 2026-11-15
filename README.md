@@ -1,64 +1,85 @@
-# taskmd
+# taskmd 0.3.0
 
-基于 Markdown 的轻量共享工作空间。主要用于在 DSH 中浏览任务大纲、编辑 Markdown、关联 Session，以及查看 Agent 活动状态。
+DSH Home 中的任务大纲、Markdown 和关联会话。点击有会话的任务会直接进入最近的会话并打开右侧任务栏；只有没有会话的任务才打开正文。任务行的会话数字、以及整行悬浮都会在右侧列出关联 Session；顶部「活跃会话」汇总所有等你处理、运行中或有新结果的 Session，不受任务绑定限制；没有运行中的会话时默认补上最近使用的 3 个。任务状态由人或 Agent 明确修改，与 Agent 的实时运行状态分开。
 
-## 核心用法
+## 使用
 
-- 共享目录中的 `tasks/<id>.md` 是文档与任务元数据的事实来源。
-- DSH 左侧栏可切换为任务大纲；右侧任务详情提供 Markdown 编辑、状态标记、Session 关联和导航。
-- 从任务创建 DSH Session 时，初始化提示词直接包含当前 Markdown 正文。Agent 不需要安装或执行 taskmd CLI。
-- 一个任务可以关联多个 Session。关联记录保留在本机，不随 Markdown 同步。
-- 任务状态与 Agent 的实时执行状态互相独立。状态变化不会影响子任务，也不会启动或终止 Agent。
+1. 启用 taskmd，在任务面板设置中选择一个 DSH Workspace 作为 Home。
+2. 指定 Home 内的任务目录，默认 `./tasks`。
+3. 通过插件 UI 或 `taskmd` Agent 工具创建任务。普通手工 Markdown 不会自动导入。
+4. 编辑任务正文、调整大纲、切换状态、归档或关联已有 Session。
+5. 从任务启动 Session 时，默认选择 Home，也可以选择 **全部 DSH Workspace/repo** 中的任意项目。这个选择不会改变 Home 或任务位置。
 
-## 数据位置
+创建后的任务是普通 Markdown，可以用 Agent 文件工具或编辑器直接修改。UI 会监听变化，保留尚未保存的正文草稿，并在冲突时显示磁盘上的最新正文。
 
-共享目录包含 `tasks/` 和 `assets/`。后者用于兼容旧资源引用；新文档推荐直接在 Markdown 正文中记录常规链接。
+启动 Session 会先保存正文，随后按顺序创建会话、关联任务、应用模型选择、发送固定的任务快照并打开会话。某一步失败后可以从已知的 Session 继续；发送重试保留原 requestId 和正文。创建结果不明时暂停重建，需核对已有会话。
 
-本机目录保存 `repositories.json`、`sessions.json`、`instance.json`、索引和事务文件。任务元数据中的 `repo` 是跨设备共享的名称，路径映射由各设备自行配置。
+## 文件与规则
 
-目录仍然通过 `store` 和 `root` 配置：
+任务保存在 `<Home>/<tasksDirectory>/<UUID>.md`，内容示例：
 
-```bash
-taskmd config set store "$HOME/Cloud/taskmd"
-taskmd config set root "$HOME/.taskmd"
-taskmd init
-taskmd repos set backend "$HOME/code/backend"
+```yaml
+---
+taskmd: 0.3
+id: 6ac483f1-fb02-46ef-9fe1-bb7aac86f769
+title: 验证登录修复
+status: todo
+parent: null
+order: 1024
+archived: false
+---
+在这里写目标、上下文和验收条件。
 ```
 
-注意：DSH 沙箱不一定能直接访问仓库外的共享目录。从 UI 创建 Session 时会直接附上 Markdown 正文，不需要 Agent 读取共享目录；如果 Agent 需要修改外部文件，仍须为其配置对应的文件访问权限。
+此示例说明文件格式；创建任务请使用 UI 或 Agent 工具。格式标记用于识别文件，不是来源认证。
 
-## 任务行为
+- 四种状态为 `todo`、`in_progress`、`done`、`canceled`，独立切换，不级联。
+- `parent` 表示大纲层级，不能引用不存在的父级或形成循环。
+- `order` 是整数；同级按 order、ID 排序。
+- 归档只改变当前任务的标记，普通视图隐藏其子树；恢复不改后代标记。
+- 只能删除叶子任务，不要求先取消或归档。删除不删除 DSH Session 或附件文件。
+- 一个任务可关联多个 Session；一个 Session 在当前任务空间中最多关联一个主任务，重新绑定会改绑。
 
-- `todo`、`in_progress`、`done`、`canceled` 都是单独文档的手动标记。
-- `archived` 仅用于收纳；归档一个任务会同时隐藏其子树，但不会改变任何执行状态。
-- `blocked_by` 是兼容旧文件的信息关联。它不会阻止状态修改、跨层级移动、完成或归档。失效引用仅产生诊断警告。
-- `ready` 接口为向后兼容保留，目前仅表示未归档的待办文档，不再代表 Agent 执行许可。
-- 删除不再要求先取消、归档或解除信息引用；仍须先移动或删除子任务，避免出现孤立父子结构。删除保留实际共享 Asset 文件和 DSH Session，但解除本机绑定。
-- 不允许父子关系循环和无效父节点；写入仍采用版本校验、事务恢复及冲突保护。
-- 既有 Markdown frontmatter 字段继续读取，不需要迁移。
+任务内容直接读写文件，没有数据库、全局 revision、索引或事务存储层。Home 设置与 Session 绑定保存在当前 DSH profile 的 `data/taskmd/` 本机 JSON 文件中，绑定按规范化 Home/任务目录分区。
 
-## 可选入口
+更新和删除需要单文件内容哈希 `expectedVersion`。冲突后应重读并合并。写入使用最终版本检查与原子替换，同进程操作串行化；与任意外部进程之间仍有检查和替换的竞争窗口，不提供严格的跨进程 CAS。任务删除与绑定清理也不是跨文件事务。
 
-CLI 保留用于手动脚本与诊断，不再是 Agent 的默认工作流程。独立 Web 和关系图仍保留现有功能，但本轮不继续扩展，优先优化 DSH 内的 Markdown 大纲与 Session 体验。
+普通附件直接放在 Home 内，用 Markdown 相对路径引用，例如 `../assets/design.png`。路径以任务文档为基准，规范化后须留在 Home 内。支持安全图片和文本预览，拒绝越界、符号链接逃逸、不支持的类型和超过 8 MiB 的附件。任务文档上限为 1 MiB。
+
+Markdown 阅读器支持标题、段落、列表、代码、强调、链接和图片，是安全的常用语法子集；不执行嵌入 HTML。正文编辑使用文本编辑框。
+
+## Agent 工具
+
+插件启用后，Agent 可调用 `taskmd`：
+
+| action | 用途 |
+| --- | --- |
+| `list` / `read` | 任务摘要、完整 Markdown、文件路径和版本 |
+| `create` / `update` / `delete` | 与 UI 相同的文件操作 |
+| `configure` | 设置 Home 与相对任务目录 |
+| `bindings` / `bind` / `unbind` | 查询与修改本机会话关联 |
+| `attachment` | 读取任务中的相对附件 |
+
+`update` 的 `changes` 只接受 title、status、parent、order、archived、body。任务创建后可继续使用普通文件工具编辑。工具不通过 CLI，不隐式创建或向 Session 发消息。
+
+## 0.3 的边界
+
+本版不兼容旧数据字段，也不自动迁移旧任务。移除了 task graph、依赖边、Ready、repo 字段、Asset 实体、CLI 和独立 Web 入口。旧任务目录不会因安装新版本而被改写。
+
+需要 DSH `>=0.2.2-rc.3 <0.3.0`、Node.js 22 及以上。当前开发依赖与 DSH 0.2.2-rc.3 对齐。
+
+## 开发与验证
 
 ```bash
-taskmd list
-taskmd tree
-taskmd show <id>
-taskmd create "文档标题" --repo backend
-taskmd check
-taskmd serve
-```
-
-## 开发
-
-```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm build
 pnpm test
+pnpm peers check
 ```
 
-**重要：** 仓库包含已构建的 `lib/` 产物。源代码修改后需要执行 `pnpm build` 才会更新 DSH 插件和 CLI 实际使用的 bundle。若未执行构建，旧 bundle 不会体现源代码的改动。
+构建只生成 `lib/index.js`（Host）与 `lib/client.js`（Client），两个 bundle 随仓库分发。修改源码后必须构建；正在运行的 DSH 是否已重载需单独确认。安装、启用和更新使用 DSH 的 plugin_manager。
 
-本分支以兼容旧数据为前提减轻业务约束，不改变 Store 底层的版本、冲突和恢复机制。
+Host 的 Cordis、DSH 协议及工具包由宿主提供；Client 的 React 和 client-store 使用宿主共享模块。`pnpm-workspace.yaml` 为已发布 client-store 中仅列作开发依赖的 Zustand/Immer 补足 Node 测试依赖，没有把这些副本打进 Client。
+
+测试在独立临时目录中覆盖文件冲突、结构约束、附件路径、监听、绑定隔离、UI 草稿、工作区选择、Session 启动续接和 Agent 工具。自动化测试与浏览器实机验收应分别记录。

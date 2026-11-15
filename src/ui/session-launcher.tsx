@@ -1,255 +1,117 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ModelCatalog, ModelSelection, SessionCapability, WorkspaceSummary } from './port.js';
-import { matchWorkspace, type WorkspaceMatch } from '../core/workspace-match.js';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { HomeSettings, TaskRecord } from '../types.js';
+import type { ModelCatalog, ModelSelection, SessionCapability } from './port.js';
+import { failure, useWorkspaces } from './shared.js';
 import { initialPrompt } from './prompt.js';
-import { createOptions, describeFailure, resolveTarget, type Failure } from './session-target.js';
-import type { Task } from '../types.js';
+import { loadLocal, storeLocal } from './task-editing.js';
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+export interface LaunchProgress {
+  requestId: string; text: string; workspaceId: string; preset: string; model?: ModelSelection;
+  sessionId?: string; creating?: boolean; unknown?: boolean; bound?: boolean; modelApplied?: boolean; sent?: boolean; opened?: boolean;
 }
+const launchKey = (record: TaskRecord) => `taskmd:0.3:launch:${record.path}`;
+const activeLaunches = new Set<string>();
 
-/**
- * The DSH Workspace a Task's repository resolves to, plus every alternative.
- *
- * Resolution is read-only: it loads the Task's registered repository directory
- * and the Client's Workspace list, then defers the decision to the pure matcher.
- * A missing Workspace service is not fatal — the section falls back to the
- * repository directory, which `sessions.create` accepts as `cwd`.
- */
-function useWorkspaceTarget(task: Task, capability: SessionCapability) {
-  const [loaded, setLoaded] = useState<{
-    taskId: string; repo: Task['repo']; capability: SessionCapability;
-    workspaces: WorkspaceSummary[]; directory: string | null; currentDirectory: string | null; error: string;
-  }>();
-  useEffect(() => {
-    const controller = new AbortController();
-    const directoryRead = capability.directory?.(task.id, controller.signal).catch(() => null) ?? Promise.resolve(null);
-    let request = 0;
-    const refresh = async () => {
-      const currentRequest = ++request;
-      let error = '';
-      // An unmapped repository must not hide workspaces that match by name.
-      const [directory, workspaces, currentDirectory] = await Promise.all([
-        directoryRead,
-        capability.workspaces
-          ? capability.workspaces(controller.signal).catch((cause: unknown) => {
-            error = messageOf(cause);
-            return [] as WorkspaceSummary[];
-          })
-          : Promise.resolve([] as WorkspaceSummary[]),
-        capability.currentDirectory?.(controller.signal).catch(() => null) ?? Promise.resolve(null),
-      ]);
-      if (!controller.signal.aborted && request === currentRequest) {
-        setLoaded({ taskId: task.id, repo: task.repo, capability, directory, workspaces, currentDirectory, error });
-      }
-    };
-    const stop = capability.subscribeTargets?.(() => { void refresh(); });
-    void refresh();
-    return () => { controller.abort(); stop?.(); };
-  }, [capability, task.id, task.repo]);
-  // Invalidate synchronously, including the render before the new effect runs.
-  const current = loaded?.taskId === task.id && loaded.repo === task.repo && loaded.capability === capability
-    ? loaded : undefined;
-  const workspaces = current?.workspaces;
-  const directory = current?.directory;
-  const match: WorkspaceMatch | undefined = useMemo(
-    () => workspaces === undefined || directory === undefined
-      ? undefined
-      : matchWorkspace({ name: task.repo ?? null, directory }, workspaces),
-    [workspaces, directory, task.repo],
-  );
-  return { workspaces, directory, currentDirectory: current?.currentDirectory, match, error: current?.error ?? '' };
-}
-
-function ModelPicker({ capability, selection, onChange, disabled }: {
-  capability: SessionCapability; selection?: ModelSelection; onChange(value?: ModelSelection): void; disabled: boolean;
-}) {
-  const [catalog, setCatalog] = useState<ModelCatalog>();
-  const [error, setError] = useState('');
-  const [reload, setReload] = useState(0);
-  useEffect(() => {
-    if (!capability.catalog) return;
-    const controller = new AbortController();
-    setError('');
-    void capability.catalog(controller.signal).then(
-      value => { if (!controller.signal.aborted) setCatalog(value); },
-      cause => { if (!controller.signal.aborted) setError(messageOf(cause)); },
-    );
-    return () => controller.abort();
-  }, [capability, reload]);
-  if (!capability.catalog || !capability.selectModel) return <p className="taskmd-muted">使用会话默认模型。</p>;
-  if (error) return <p className="taskmd-error" role="alert">读取模型目录失败：{error} <button disabled={disabled} onClick={() => setReload(value => value + 1)}>重试读取模型目录</button></p>;
-  if (!catalog) return <p className="taskmd-muted">正在读取模型目录…</p>;
-  const selectedModel = catalog.groups.find(item => item.id === selection?.provider)?.models.find(item => item.id === selection?.model);
-  const efforts = selectedModel?.reasoning?.efforts ?? [];
-  return <div className="taskmd-model-picker">
-    <label>模型<select value={selection ? `${selection.provider}\u0000${selection.model}` : ''} disabled={disabled} onChange={event => {
-      const [provider, model] = event.target.value.split('\u0000');
-      if (!provider || !model) { onChange(undefined); return; }
-      const effort = catalog.groups.find(item => item.id === provider)?.models.find(item => item.id === model)?.reasoning?.defaultEffort;
-      onChange({ provider, model, ...(effort ? { reasoningEffort: effort } : {}) });
-    }}>
-      <option value="">使用会话默认模型</option>
-      {catalog.groups.map(group => <optgroup key={group.id} label={group.name}>
-        {group.models.map(model => <option key={model.id} value={`${group.id}\u0000${model.id}`}>{model.name}</option>)}
-      </optgroup>)}
-    </select></label>
-    {!!efforts.length && selection && <label>推理强度<select value={selection.reasoningEffort ?? ''} disabled={disabled} onChange={event => {
-      onChange({ provider: selection.provider, model: selection.model, ...(event.target.value ? { reasoningEffort: event.target.value } : {}) });
-    }}>
-      <option value="">模型默认</option>
-      {efforts.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
-    </select></label>}
-    {!!catalog.failures.length && <p className="taskmd-muted">部分模型目录不可用：{catalog.failures.map(item => `${item.name}（${item.message}）`).join('；')}</p>}
-    {selection && <p className="taskmd-muted">所选模型也会成为 DSH 后续会话的默认模型。</p>}
-  </div>;
-}
-
-interface LaunchProgress {
-  sessionId?: string;
-  bound: boolean;
-  modelApplied: boolean;
-  sent: boolean;
-  opened: boolean;
-  attachFailed?: boolean;
-  /** Freeze both identity and content before the first send, including a lost acknowledgement. */
-  delivery?: { requestId: string; text: string };
-}
-const freshProgress = (): LaunchProgress => ({ bound: false, modelApplied: false, sent: false, opened: false });
-
-/** Task identity owns the form and all retry state. */
-export function TaskSessionLauncher(props: { task: Task; capability: SessionCapability; defaultOpen?: boolean; openNonce?: number }) {
-  return <SessionLaunchForm key={props.task.id} {...props} />;
-}
-
-function SessionLaunchForm({ task, capability, defaultOpen = false, openNonce }: { task: Task; capability: SessionCapability; defaultOpen?: boolean; openNonce?: number }) {
-  const details = useRef<HTMLDetailsElement>(null);
-  // A new left-sidebar open signal re-expands the section. Ordinary re-renders
-  // leave the reader's manual fold alone because this effect keys on the nonce.
-  useEffect(() => {
-    if (defaultOpen && details.current) details.current.open = true;
-  }, [defaultOpen, openNonce]);
-  const { workspaces, directory, currentDirectory, match, error: loadError } = useWorkspaceTarget(task, capability);
-  const [chosen, setChosen] = useState('');
-  const [manual, setManual] = useState('');
-  const [targetOwner, setTargetOwner] = useState({ id: task.id, repo: task.repo });
-  if (targetOwner.id !== task.id || targetOwner.repo !== task.repo) {
-    setTargetOwner({ id: task.id, repo: task.repo });
-    setChosen(''); setManual('');
-  }
-  const [preset, setPreset] = useState('');
-  const [selection, setSelection] = useState<ModelSelection>();
-  const [prompt, setPrompt] = useState(() => initialPrompt(task));
-  const [notice, setNotice] = useState('');
-  const [failure, setFailure] = useState<Failure>();
-  const [busy, setBusy] = useState(false);
-  const [phase, setPhase] = useState('');
-  const locked = useRef(false);
-  const progress = useRef<LaunchProgress>(freshProgress());
-  const current = progress.current;
-  const auto = match?.kind === 'matched' ? match.workspace : undefined;
-  const target = useMemo(() => resolveTarget({ manual, chosen, match, workspaces, directory, currentDirectory }), [manual, chosen, match, workspaces, directory, currentDirectory]);
-  const canRun = !busy && !current.attachFailed && (!!current.sessionId || !!target)
-    && (!capability.send || !!prompt.trim()) && !failure?.existingTaskId;
-  const complete = current.opened && (!capability.send || current.sent);
-
-  const run = async (agentPreset = preset, transferFrom?: string) => {
-    if (locked.current || current.attachFailed || (!current.sessionId && !target) || (capability.send && !prompt.trim())) return;
-    if (failure?.existingTaskId && !transferFrom) return;
-    locked.current = true; setBusy(true); setFailure(undefined); setNotice('');
-    let stage = '创建并绑定会话';
-    const step = (label: string) => { stage = label; setPhase(label); };
+/** Each acknowledged stage is persisted before continuing; send retries retain the request identity. */
+export async function continueLaunch(capability: SessionCapability, taskId: string, progress: LaunchProgress, persist: () => void) {
+  if (progress.unknown) throw new Error('创建结果不明。请在 DSH 会话列表核对，并关联已创建的 Session。');
+  if (!progress.sessionId) {
+    progress.creating = true; persist();
     try {
-      if (!current.sessionId) {
-        step('创建并绑定会话');
-        const result = await capability.create(task.id, createOptions(target!, agentPreset));
-        current.sessionId = result.sessionId;
-        current.bound = true;
-      }
-      const id = current.sessionId;
-      if (!current.bound) {
-        step('绑定会话');
-        if (transferFrom) await capability.unbind(transferFrom, id);
-        await capability.bind(task.id, id);
-        current.bound = true;
-      }
-      if (!current.modelApplied) {
-        step('设置模型');
-        if (selection) {
-          if (!capability.selectModel) throw new Error('此环境无法设置模型。');
-          await capability.selectModel(id, selection);
-        }
-        current.modelApplied = true;
-      }
-      if (capability.send && !current.sent) {
-        step('发送首条消息');
-        current.delivery ??= { requestId: crypto.randomUUID(), text: prompt };
-        await capability.send(id, current.delivery.text, current.delivery.requestId);
-        current.sent = true;
-      }
-      if (!current.opened) {
-        step('打开会话');
-        await capability.open(id);
-        current.opened = true;
-      }
-      setNotice(current.sent ? '首条消息已发送，会话已打开。' : '会话已创建并打开，请复制提示词后手动发送。');
+      const result = await capability.create(taskId, { workspaceId: progress.workspaceId, ...(progress.preset ? { agentPreset: progress.preset } : {}) });
+      progress.sessionId = result.sessionId; progress.bound = true;
     } catch (cause) {
-      const described = describeFailure(cause);
-      if (!current.sessionId && described.sessionId) current.sessionId = described.sessionId;
-      if (described.code === 'session_attach_failed') current.attachFailed = true;
-      setFailure({ ...described, message: `${stage}失败：${described.message}`, sessionId: current.sessionId });
-    } finally { locked.current = false; setBusy(false); setPhase(''); }
-  };
+      const sessionId = (cause as { details?: { sessionId?: unknown } })?.details?.sessionId;
+      if (typeof sessionId === 'string') progress.sessionId = sessionId;
+      else progress.unknown = true;
+      throw cause;
+    } finally { progress.creating = false; persist(); }
+  }
+  const id = progress.sessionId;
+  if (!progress.bound) { await capability.bind(taskId, id); progress.bound = true; persist(); }
+  if (!progress.modelApplied) {
+    if (progress.model) {
+      if (!capability.selectModel) throw new Error('当前环境无法设置模型。');
+      await capability.selectModel(id, progress.model);
+    }
+    progress.modelApplied = true; persist();
+  }
+  if (!progress.sent) {
+    if (capability.send) await capability.send(id, progress.text, progress.requestId);
+    progress.sent = true; persist();
+  }
+  if (!progress.opened) { await capability.open(id); progress.opened = true; persist(); }
+}
 
-  const open = async () => {
-    if (locked.current || !current.sessionId) return;
-    locked.current = true; setBusy(true);
-    try { await capability.open(current.sessionId); }
-    catch (cause) { setNotice(`打开会话失败：${messageOf(cause)}`); }
-    finally { locked.current = false; setBusy(false); }
+export function TaskSessionLauncher({ record, settings, capability, save, onChanged }: {
+  record: TaskRecord; settings: HomeSettings; capability: SessionCapability; save(): Promise<TaskRecord>; onChanged(): void;
+}) {
+  const workspaces = useWorkspaces(capability);
+  const [chosen, setChosen] = useState(settings.homeWorkspaceId ?? '');
+  const [preset, setPreset] = useState('');
+  const [model, setModel] = useState<ModelSelection>();
+  const [catalog, setCatalog] = useState<ModelCatalog>();
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogTick, setCatalogTick] = useState(0);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [resumeId, setResumeId] = useState('');
+  const locked = useRef(false);
+  const progress = useRef<LaunchProgress | undefined>(loadLocal<LaunchProgress>(launchKey(record)));
+  if (progress.current?.creating && !activeLaunches.has(launchKey(record))) { progress.current.creating = false; progress.current.unknown = true; }
+  const ids = useId();
+  useEffect(() => {
+    const controller = new AbortController();
+    void capability.catalog?.(controller.signal).then(value => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(''); } }, cause => { if (!controller.signal.aborted) setCatalogError(failure(cause)); });
+    return () => controller.abort();
+  }, [capability, catalogTick]);
+  const persist = () => { storeLocal(launchKey(record), progress.current); setTick(value => value + 1); };
+  const run = async () => {
+    if (locked.current) return;
+    const key = launchKey(record);
+    if (activeLaunches.has(key)) { setError('此任务正在另一个面板准备会话，请稍后继续。'); return; }
+    progress.current = loadLocal<LaunchProgress>(key) ?? progress.current;
+    activeLaunches.add(key);
+    locked.current = true; setBusy(true); setError('');
+    try {
+      if (!progress.current) {
+        if (!chosen || !workspaces.items.some(item => item.workspaceId === chosen)) throw new Error('请选择一个可用的 DSH 仓库。');
+        const saved = await save();
+        progress.current = { requestId: crypto.randomUUID(), text: initialPrompt(saved), workspaceId: chosen, preset: preset.trim(), model };
+        persist();
+      }
+      await continueLaunch(capability, record.task.id, progress.current, persist);
+      onChanged();
+    } catch (cause) { setError(failure(cause)); }
+    finally { activeLaunches.delete(key); locked.current = false; setBusy(false); }
   };
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(prompt); setNotice('已复制提示词。'); }
-    catch { setNotice('浏览器拒绝了剪贴板访问，请手动选中文本复制。'); }
-  };
-  const frozen = busy || !!current.delivery;
-  return <details className="taskmd-box taskmd-launcher" ref={details} open={defaultOpen} aria-label="从任务新建会话"><summary>从任务新建会话</summary>
-    {loadError && <p className="taskmd-error" role="alert">{loadError}</p>}
-    <fieldset className="taskmd-launch-options" disabled={busy || !!current.sessionId}>
-      <label>工作目录<select value={chosen} onChange={event => setChosen(event.target.value)}>
-        <option value="">{auto ? `仓库 Workspace：${auto.title} · ${auto.path}` : directory ? `仓库目录：${directory}` : currentDirectory ? (target?.kind === 'workspace' ? `当前会话 Workspace：${target.label}` : `当前会话：${currentDirectory}`) : '请选择 Workspace 或填写目录'}</option>
-        {(workspaces ?? []).map(item => <option key={item.workspaceId} value={item.workspaceId}>{item.title} · {item.path}</option>)}
-      </select></label>
-      {auto && !chosen && !manual.trim() && <p className="taskmd-muted">Workspace：{auto.title}（{auto.path}）</p>}
-      <label>改用其他工作目录<input value={manual} onChange={event => setManual(event.target.value)} placeholder="可选；留空使用上述默认目录，填写后覆盖 Workspace" /></label>
-      <label>Agent preset<input value={preset} onChange={event => setPreset(event.target.value)} placeholder="可选；留空使用默认 preset" /></label>
+  const current = progress.current;
+  const complete = !!current?.opened;
+  const selectedModel = catalog?.groups.find(group => group.id === model?.provider)?.models.find(item => item.id === model?.model);
+  return <details className="taskmd-launcher"><summary>新建 Session</summary>
+    <p className="taskmd-muted">保存正文后发送任务快照。默认在 Home 创建会话，也可选择其他仓库。</p>
+    <fieldset disabled={busy || !!current}><legend>会话选项</legend>
+      <label htmlFor={`${ids}-repo`}>Session 仓库</label><select id={`${ids}-repo`} aria-label="Session 仓库" value={chosen} onChange={event => setChosen(event.target.value)}>
+        <option value="">选择 DSH 仓库</option>{workspaces.items.map(item => <option key={item.workspaceId} value={item.workspaceId}>{item.workspaceId === settings.homeWorkspaceId ? 'Home · ' : ''}{item.title} · {item.path}</option>)}
+      </select>
+      <label htmlFor={`${ids}-preset`}>Agent preset（可选）</label><input id={`${ids}-preset`} value={preset} onChange={event => setPreset(event.target.value)} placeholder="使用 DSH 默认 preset" />
+      {capability.catalog && capability.selectModel && <><label htmlFor={`${ids}-model`}>模型</label><select id={`${ids}-model`} value={model ? JSON.stringify([model.provider, model.model]) : ''} onChange={event => {
+        if (!event.target.value) { setModel(undefined); return; }
+        const [provider, value] = JSON.parse(event.target.value) as [string, string];
+        setModel({ provider, model: value });
+      }}><option value="">DSH 默认模型</option>{catalog?.groups.map(group => <optgroup key={group.id} label={group.name}>{group.models.map(item => <option key={item.id} value={JSON.stringify([group.id, item.id])}>{item.name}</option>)}</optgroup>)}</select></>}
+      {!!selectedModel?.reasoning?.efforts.length && model && <><label htmlFor={`${ids}-effort`}>推理强度</label><select id={`${ids}-effort`} value={model.reasoningEffort ?? ''} onChange={event => setModel({ ...model, reasoningEffort: event.target.value || undefined })}><option value="">模型默认</option>{selectedModel.reasoning.efforts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></>}
     </fieldset>
-    <ModelPicker capability={capability} selection={selection} disabled={frozen} onChange={value => { setSelection(value); current.modelApplied = false; }} />
-    <label>初始化提示词<textarea aria-label="初始化提示词" spellCheck={false} value={prompt} disabled={frozen} onChange={event => setPrompt(event.target.value)} /></label>
-    <div className="taskmd-toolbar">
-      <button disabled={busy || !prompt.trim()} onClick={() => { void copy(); }}>复制提示词</button>
-      <button disabled={frozen} onClick={() => setPrompt(initialPrompt(task))}>恢复默认</button>
-      <button disabled={frozen} onClick={() => setPrompt('')}>清空</button>
-    </div>
-    {!capability.send && <p className="taskmd-muted">此环境不支持直接发送消息，创建后请复制提示词到会话中发送。</p>}
-    {failure && <div className="taskmd-error" role="alert">
-      <p>{failure.message}</p>
-      {current.sessionId && <p className="taskmd-muted">会话 {current.sessionId} 已创建；继续执行会复用这个会话。</p>}
-      {current.attachFailed && <p>工作目录挂载失败，请打开会话处理；不会自动发送消息。</p>}
-      {failure.existingTaskId && <button disabled={busy} onClick={() => { void run(preset, failure.existingTaskId); }}>解除原任务关联并继续</button>}
-      {(failure.code === 'agent-preset/not-found' || failure.code === 'agent-preset/invalid') && !current.sessionId
-        && <button disabled={busy} onClick={() => { setPreset(''); void run(''); }}>清空 preset 用默认值重试</button>}
-    </div>}
-    {!complete && <div className="taskmd-toolbar">
-      <button disabled={!canRun} onClick={() => { void run(); }}>{busy ? `${phase}…` : current.sessionId ? '继续执行' : capability.send ? '创建并发送首条消息' : '创建并绑定会话'}</button>
-      {target && !current.sessionId && <span className="taskmd-muted">工作目录：{target.label}</span>}
-    </div>}
-    {current.sessionId && <div className="taskmd-toolbar">
-      <span className="taskmd-muted">会话：{current.sessionId}{current.bound ? ' · 已绑定' : ' · 未绑定'}</span>
-      <button disabled={busy} onClick={() => { void open(); }}>打开会话</button>
-      {complete && <button disabled={busy} onClick={() => { progress.current = freshProgress(); setFailure(undefined); setNotice(''); }}>再新建一个会话</button>}
-    </div>}
-    {notice && <p className="taskmd-muted" role="status">{notice}</p>}
+    {workspaces.error && <p role="alert">{workspaces.error} <button onClick={workspaces.refresh}>重新读取仓库</button></p>}
+    {catalogError && <p role="alert">{catalogError} <button onClick={() => setCatalogTick(value => value + 1)}>重新读取模型</button></p>}
+    {!!catalog?.failures.length && <p className="taskmd-muted">部分模型不可用：{catalog.failures.map(item => item.name).join('、')}</p>}
+    {error && <p role="alert" className="taskmd-error">{error}</p>}
+    {current?.unknown ? <div><p>创建结果不明，已暂停重建。请先查看 DSH 会话列表，找到会话后填写 Session ID 继续。</p>
+      <label htmlFor={`${ids}-resume`}>已创建的 Session ID</label><input id={`${ids}-resume`} value={resumeId} onChange={event => setResumeId(event.target.value)} />
+      <button disabled={busy || !resumeId.trim()} onClick={() => { current.sessionId = resumeId.trim(); current.unknown = false; persist(); void run(); }}>关联并继续</button>
+    </div> : <button disabled={busy || (!current && !chosen) || complete} onClick={() => void run()}>{busy ? '正在准备会话…' : complete ? '已发送并打开 Session' : current ? '继续上次启动' : '保存并启动 Session'}</button>}
+    {current?.sessionId && <p className="taskmd-muted">Session：{current.sessionId} · {current.sent ? '已发送快照' : '尚未确认发送'}</p>}
+    {complete && <button onClick={() => { progress.current = undefined; persist(); setError(''); }}>准备另一个 Session</button>}
   </details>;
 }

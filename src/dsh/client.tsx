@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentType } from 'react';
+import { createPortal } from 'react-dom';
 import { TaskmdApp, TaskmdDetailPanel, TaskmdSidebar } from '../ui/taskmd-app.js';
 import { TaskmdLeftSidebar } from '../ui/left-sidebar.js';
 import type { TaskRecord } from '../types.js';
@@ -25,7 +26,7 @@ interface SidebarRightService {
     getSnapshot(): string | undefined;
     subscribe(listener: () => void): () => void;
   };
-  openResource(address: string, options?: { kind?: string }): void;
+  openResource(address: string, options?: { kind?: string; destination?: 'sidebar' | 'float' }): void;
 }
 
 interface LayoutService {
@@ -110,8 +111,8 @@ function taskIdOf(address: string): string | undefined {
   }
 }
 
-function TasksIcon() {
-  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+function TasksIcon({ size = 18 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
     <path d="m3 6 2 2 3-4M11 6h10M3 13h4M11 13h10M3 20h4M11 20h10" />
   </svg>;
 }
@@ -224,11 +225,7 @@ async function setup(ctx: ClientContext): Promise<void> {
 
   function Root() {
     const request = useSyncExternalStore(subscribeTaskOpen, getTaskOpen, getTaskOpen);
-    const handled = useCallback((nonce: number) => {
-      if (taskOpen?.nonce === nonce) setTaskOpen(undefined);
-    }, []);
-    return <TaskmdApp port={port} sessions={sessions} initialTaskId={request?.taskId}
-      openTask={request} onOpenTaskHandled={handled} />;
+    return <TaskmdApp port={port} sessions={sessions} initialTaskId={request?.taskId} selectionToken={request?.nonce} />;
   }
   function SessionTasks({ sessionId, useTabInfo }: TabProps) {
     const { tab } = useTabInfo();
@@ -238,9 +235,7 @@ async function setup(ctx: ClientContext): Promise<void> {
   function TaskDetail({ sessionId, useTabInfo }: TabProps) {
     const { tab } = useTabInfo();
     const id = taskIdOf(tab.contentId);
-    const open = useCallback((taskId: string) => tab.actions.openResource(addressOf(taskId), { kind: DETAIL_KIND }), [tab.actions]);
-    // The right sidebar stays compact: only the detail panel, never the full app.
-    return id ? <TaskmdDetailPanel key={id} port={port} sessions={sessions} sessionId={sessionId} taskId={id} onOpenTask={open} /> : <p role="alert">Invalid task address.</p>;
+    return id ? <TaskmdDetailPanel key={id} port={port} sessions={sessions} sessionId={sessionId} taskId={id} /> : <p role="alert">Invalid task address.</p>;
   }
   function TaskTitle({ useTabInfo }: TabProps) {
     const { tab } = useTabInfo();
@@ -285,7 +280,7 @@ async function setup(ctx: ClientContext): Promise<void> {
       if (!pending || pending.sessionId !== mounted) return;
       let retry: number | undefined;
       try {
-        service.openResource(addressOf(pending.taskId), { kind: DETAIL_KIND });
+        service.openResource(addressOf(pending.taskId), { kind: DETAIL_KIND, destination: 'sidebar' });
         attempts.current.delete(pending.token);
         setPending(undefined);
       } catch (error) {
@@ -355,8 +350,7 @@ async function setup(ctx: ClientContext): Promise<void> {
   function TaskBrowser({ wide, expandSidebar }: { wide: boolean; expandSidebar(): void }) {
     return <TaskmdLeftSidebar port={port} sessions={sessions} wide={wide}
       expandSidebar={expandSidebar} showSessions={() => setSidebarMode('sessions')}
-      onActivateSession={activateSession} onOpenTask={openTaskPanel}
-      sessionTitle={(sessionId) => sessions.title?.(sessionId)} />;
+      onActivateSession={activateSession} onOpenTask={openTaskPanel} />;
   }
   const installTaskSidebar = () => {
     if (sidebarSlotMounted && sidebarMode === 'tasks' && !disposeTaskSidebar) {
@@ -371,23 +365,57 @@ async function setup(ctx: ClientContext): Promise<void> {
     else { disposeTaskSidebar?.(); disposeTaskSidebar = undefined; }
     for (const notify of [...listeners]) notify();
   };
+  const switchStyle = (compact: boolean, active: boolean) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    padding: compact ? 0 : '8px 10px', width: compact ? 26 : 40, height: compact ? 26 : 36,
+    minHeight: compact ? 26 : 36, flex: 'none',
+    border: 'none', borderRadius: 7,
+    background: active ? 'color-mix(in srgb,currentColor 9%,transparent)' : 'transparent',
+    color: 'inherit', cursor: 'pointer', font: 'inherit',
+  });
   function SidebarSwitch({ wide }: { wide: boolean }) {
     const [mode, setMode] = useState<SidebarMode>(() => sidebarMode);
+    const [header, setHeader] = useState<HTMLElement>();
     useEffect(() => {
       const notify = () => setMode(sidebarMode);
       listeners.add(notify);
       return () => { listeners.delete(notify); };
     }, []);
+    // The native workspace browser owns the row just above the session list.
+    // Its `data-sidebar-workspace-header` marker lets the task outline switch
+    // sit left of the workspace search instead of in the footer.
+    useEffect(() => {
+      if (!wide) { setHeader(undefined); return; }
+      let current: HTMLElement | null = null;
+      const find = () => document.querySelector<HTMLElement>('[data-sidebar-workspace-header]');
+      const sync = () => {
+        const next = find();
+        if (next === current) return;
+        current = next;
+        setHeader(next ?? undefined);
+      };
+      sync();
+      const observer = new MutationObserver(sync);
+      observer.observe(document.body, { childList: true, subtree: true });
+      return () => observer.disconnect();
+    }, [wide]);
     const tasks = mode === 'tasks';
-    return <button type="button" onClick={() => setSidebarMode(tasks ? 'sessions' : 'tasks')}
-      title={tasks ? '切换到 DSH 会话列表' : '切换到 taskmd 任务大纲'}
-      aria-label={tasks ? '切换到 DSH 会话列表' : '切换到 taskmd 任务大纲'}
-      aria-pressed={tasks} style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-        padding: '8px 10px', width: wide ? 'auto' : 40, minHeight: 36,
-        border: 'none', borderRadius: 7, background: tasks ? 'color-mix(in srgb,currentColor 9%,transparent)' : 'transparent',
-        color: 'inherit', cursor: 'pointer', font: 'inherit',
-      }}><TasksIcon />{wide && <span style={{ whiteSpace: 'nowrap' }}>{tasks ? '返回会话' : '任务大纲'}</span>}</button>;
+    const label = tasks ? '切换到 DSH 会话列表' : '切换到 taskmd 任务大纲';
+    const button = <button type="button" data-taskmd-sidebar-switch onClick={() => setSidebarMode(tasks ? 'sessions' : 'tasks')}
+      title={label} aria-label={label} aria-pressed={tasks} style={switchStyle(!!header, tasks)}>
+      <TasksIcon size={header ? 16 : 18} />
+    </button>;
+    if (header) return <>
+      <style>{`
+        [data-sidebar-workspace-header]>:first-child{order:-2}
+        [data-sidebar-workspace-header]>[data-taskmd-sidebar-switch]{order:-1;margin-left:auto}
+        [data-sidebar-workspace-header] [class*="searchSlot"]{margin-left:0!important}
+        [data-sidebar-workspace-header]:has([class*="searchExpanded"])>[data-taskmd-sidebar-switch]{display:none}
+      `}</style>
+      {createPortal(button, header)}
+    </>;
+    if (wide) return null;
+    return button;
   }
   ctx.effect(() => ctx.slots.inject('sidebar.workspaces', () => {
     sidebarSlotMounted = true;

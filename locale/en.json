@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "taskmd",
-    "description": "Markdown task graphs: a tree of tasks with dependency edges, shown as an interactive panel and a per-session sidebar tab. Tasks are plain Markdown files, edited by the taskmd CLI."
+    "description": "A Markdown task outline in your Home workspace, with four manual states, multiple linked DSH Sessions, and separate Agent activity. Create tasks through the plugin UI or Agent tool."
   }
 }

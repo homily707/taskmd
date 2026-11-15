@@ -1,57 +1,54 @@
-import { generateNKeysBetween } from 'fractional-indexing';
-import type { Operation, Task } from '../types.js';
-import { compareTasks, descendants } from './shared.js';
+import type { Task, TaskRecord } from '../types.js';
+import { compareTasks } from './shared.js';
 
-export type Placement = 'before' | 'after' | 'inside';
-/** Move a document in the outline; informational references do not constrain placement. */
-export function moveOperations(tasks: Task[], id: string, targetId: string, placement: Placement): Operation[] {
-  const task = tasks.find(t => t.id === id), target = tasks.find(t => t.id === targetId);
-  if (!task || !target) throw new Error('任务已不存在，请刷新后重试。');
-  const parent = placement === 'inside' ? target.id : target.parent;
-  if (id === targetId || (parent !== null && descendants(tasks, id).has(parent))) throw new Error('不能移动到自身或后代。');
-  const siblings = tasks.filter(t => t.parent === parent && t.id !== id).sort(compareTasks);
-  const index = placement === 'inside' ? siblings.length : siblings.findIndex(t => t.id === targetId) + (placement === 'after' ? 1 : 0);
-  siblings.splice(index, 0, task);
-  const orders = generateNKeysBetween(null, null, siblings.length);
-  return siblings.flatMap((t, i): Operation[] => t.id === id ? [{ op: 'patch', id, changes: { parent, order: orders[i]! } }]
-    : t.order !== orders[i] ? [{ op: 'patch', id: t.id, changes: { order: orders[i]! } }] : []);
-}
-export function indentOperations(tasks: Task[], id: string, outdent: boolean): Operation[] {
-  const task = tasks.find(t => t.id === id);
-  if (!task) throw new Error('任务已不存在。');
-  if (outdent) {
-    if (!task.parent) throw new Error('根任务不能继续反缩进。');
-    return moveOperations(tasks, id, task.parent, 'after');
-  }
-  const siblings = tasks.filter(t => t.parent === task.parent && !t.archived).sort(compareTasks);
-  const previous = siblings[siblings.findIndex(t => t.id === id) - 1];
-  if (!previous) throw new Error('没有可作为父任务的前一个同级任务。');
-  return moveOperations(tasks, id, previous.id, 'inside');
-}
-export function outlineRows(tasks: Task[], collapsed: Set<string>) {
-  const ids = new Set(tasks.map(t => t.id));
-  const children = new Map<string | null, Task[]>();
-  for (const task of tasks) {
-    const parent = task.parent && ids.has(task.parent) ? task.parent : null;
-    children.set(parent, [...children.get(parent) || [], task]);
-  }
-  for (const list of children.values()) list.sort(compareTasks);
-  const rows: { task: Task; depth: number }[] = [], seen = new Set<string>();
-  const visit = (task: Task, depth: number) => {
-    if (seen.has(task.id)) return;
-    seen.add(task.id); rows.push({ task, depth });
-    if (!collapsed.has(task.id)) for (const child of children.get(task.id) || []) visit(child, depth + 1);
-  };
-  for (const root of children.get(null) || []) visit(root, 0);
-  // Cycles/missing parents remain inspectable; valid collapsed descendants stay hidden.
-  for (const task of tasks) {
-    if (seen.has(task.id)) continue;
-    let cursor: Task | undefined = task; const chain = new Set<string>(); let hidden = false;
-    while (cursor?.parent && !chain.has(cursor.id)) {
-      chain.add(cursor.id); if (collapsed.has(cursor.parent)) { hidden = true; break; }
-      cursor = tasks.find(t => t.id === cursor!.parent);
+/** Archived ancestors hide their whole branch, including during search. */
+export function outlineRows(records: TaskRecord[], collapsed = new Set<string>(), showArchived = false, query = '') {
+  const tasks = records.map(record => record.task);
+  const byId = new Map(tasks.map(task => [task.id, task]));
+  const visible = tasks.filter(task => {
+    const seen = new Set<string>();
+    let cursor: Task | undefined = task;
+    while (cursor && !seen.has(cursor.id)) {
+      if (!showArchived && cursor.archived) return false;
+      seen.add(cursor.id); cursor = cursor.parent ? byId.get(cursor.parent) : undefined;
     }
-    if (!hidden) visit(task, 0);
+    return true;
+  });
+  const matching = new Set<string>();
+  for (const task of visible) if (`${task.title} ${task.id}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) {
+    let cursor: Task | undefined = task;
+    while (cursor && !matching.has(cursor.id)) { matching.add(cursor.id); cursor = cursor.parent ? byId.get(cursor.parent) : undefined; }
   }
+  const children = new Map<string | null, Task[]>();
+  for (const task of visible) if (matching.has(task.id)) {
+    const parent = task.parent && byId.has(task.parent) ? task.parent : null;
+    children.set(parent, [...children.get(parent) ?? [], task]);
+  }
+  const rows: { task: Task; depth: number; hasChildren: boolean }[] = [];
+  const visited = new Set<string>();
+  const visit = (parent: string | null, depth: number) => {
+    for (const task of (children.get(parent) ?? []).sort(compareTasks)) {
+      if (visited.has(task.id)) continue;
+      visited.add(task.id); rows.push({ task, depth, hasChildren: !!children.get(task.id)?.length });
+      if (query || !collapsed.has(task.id)) visit(task.id, depth + 1);
+    }
+  };
+  visit(null, 0);
   return rows;
+}
+
+/** One file update moves a sibling; no multi-file transaction is necessary. */
+export function movedOrder(tasks: Task[], id: string, direction: -1 | 1): number | undefined {
+  const current = tasks.find(task => task.id === id);
+  if (!current) return;
+  const siblings = tasks.filter(task => task.parent === current.parent).sort(compareTasks);
+  const index = siblings.findIndex(task => task.id === id);
+  const target = index + direction;
+  if (target < 0 || target >= siblings.length) return;
+  const adjacent = siblings[target]!;
+  const outer = siblings[target + direction];
+  if (!outer) return adjacent.order + direction;
+  const value = adjacent.order + (outer.order - adjacent.order) / 2;
+  if (value === adjacent.order || value === outer.order) throw new Error('相邻任务排序值重合，请在任务设置中调整排序值。');
+  return value;
 }

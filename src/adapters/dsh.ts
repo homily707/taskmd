@@ -1,6 +1,6 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store';
 import type {
-  ModelCatalog, ModelSelection, SessionCapability, SessionStatus, SessionStatusSource, TaskGraphPort, WorkspaceSummary,
+  ModelCatalog, ModelSelection, SessionCapability, SessionStatus, SessionStatusSource, TaskPort, WorkspaceSummary,
 } from '../ui/port.js';
 import { TaskError, type State, type TaskRecord } from '../types.js';
 import { assertSessionReachable } from './session-nav.js';
@@ -54,19 +54,12 @@ export function creationMessage(error: unknown, workspacePath?: string): string 
 
 // Narrow structural faces of the shipped DSH 0.2.1-rc.2 Client APIs.
 // No Host services enter the browser bundle.
-export interface TaskmdRemote {
-  state(): Promise<Result<State>>;
-  read(taskId: string): Promise<Result<TaskRecord>>;
-  apply(plan: Parameters<TaskGraphPort['apply']>[0]): Promise<Result<Value<TaskGraphPort['apply']>>>;
-  asset(taskId: string, index: number): Promise<Result<Value<TaskGraphPort['readAsset']>>>;
-  bindings(filter?: { taskId?: string; sessionId?: string }): Promise<Result<Value<SessionCapability['list']>>>;
-  bind(taskId: string, sessionId: string): Promise<Result<unknown>>;
-  unbind(taskId: string, sessionId: string): Promise<Result<unknown>>;
-  /** Records an open of one bound Session; `false` when no binding matched. */
-  touch(sessionId: string): Promise<Result<boolean>>;
-  repositoryDirectory(taskId: string): Promise<Result<string | null>>;
-  watch(signal: AbortSignal): AsyncIterable<Result<{ revision: string }>>;
-}
+export type TaskmdRemote = {
+  [K in keyof import('../dsh/remote.js').TaskmdRemote]: K extends 'watch'
+    ? (signal: AbortSignal) => AsyncIterable<Result<{ revision: string }>>
+    : import('../dsh/remote.js').TaskmdRemote[K] extends (...args: infer A) => Promise<infer R>
+      ? (...args: A) => Promise<Result<R>> : never
+};
 
 /** The subset of the DSH Client context the data adapters need. */
 export interface DshAdapterScope {
@@ -230,11 +223,11 @@ export async function unwrap<T>(pending: Promise<Result<T>>): Promise<T> {
   const result = await pending;
   if (!result.ok) {
     const error = result.error;
-    if ('code' in error && error.code === 'taskmd/store-error' && 'details' in error) {
+    if ('code' in error && error.code === 'taskmd/file-error' && 'details' in error) {
       const details = error.details;
       if (details && typeof details === 'object' && 'code' in details && typeof details.code === 'string') {
         const hint = 'hint' in details && typeof details.hint === 'string' ? details.hint : '';
-        throw new TaskError(details.code, hint ? `${error.message} ${hint}` : error.message, hint, 'details' in details ? details.details : undefined);
+        throw new TaskError(details.code, hint ? `${error.message} ${hint}` : error.message, 'details' in details ? details.details : undefined);
       }
     }
     throw error;
@@ -259,7 +252,7 @@ export function observe<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T
 }
 
 /**
- * Builds the DSH-backed {@link TaskGraphPort} and {@link SessionCapability}.
+ * Builds the DSH-backed {@link TaskPort} and {@link SessionCapability}.
  *
  * The Remote namespace must already be mounted, since `remote.taskmd` is read
  * through `ctx.get` (it cannot appear in the static inject list). Returns the
@@ -280,7 +273,7 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
   if (!remote) throw new Error('taskmd: the Remote namespace did not mount');
   const statusSource = createSessionStatusSource(scope);
   const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
-  const port: TaskGraphPort = {
+  const port: TaskPort = {
     getState(signal) {
       lifetime.signal.throwIfAborted();
       if (!stateRead) {
@@ -303,22 +296,17 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
       }
       return observe(pending, signalFor(signal));
     },
-    async apply(plan, signal) {
-      signalFor(signal).throwIfAborted();
-      // An admitted mutation may commit even if its caller later stops observing.
-      const pending = unwrap(remote.apply(plan)).finally(invalidate);
-      return observe(pending, signalFor(signal));
-    },
-    readAsset(id, index, signal) {
-      signalFor(signal).throwIfAborted();
-      return observe(unwrap(remote.asset(id, index)), signalFor(signal));
-    },
+    configure: (settings) => unwrap(remote.configure(settings)).finally(invalidate),
+    createTask: (input) => unwrap(remote.create(input)).finally(invalidate),
+    updateTask: (id, changes, version) => unwrap(remote.update(id, changes, version)).finally(invalidate),
+    deleteTask: (id, version) => unwrap(remote.removeTask(id, version)).finally(invalidate),
+    readAttachment: (id, href) => unwrap(remote.attachment(id, href)),
     subscribe: (listener) => store.subscribe(listener),
   };
   const sessions: SessionCapability = {
     list(taskId, signal) {
       signalFor(signal).throwIfAborted();
-      return observe(unwrap(remote.bindings(taskId === undefined ? {} : { taskId })), signalFor(signal));
+      return observe(unwrap(remote.bindings(taskId)), signalFor(signal));
     },
     statuses: () => statusSource,
     title(sessionId) {
@@ -339,12 +327,6 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
         return;
       }
       invalidate();
-    },
-    async directory(taskId, signal) {
-      // The Host resolves the Task's repo name through the local registry.
-      signalFor(signal).throwIfAborted();
-      const directory = await observe(unwrap(remote.repositoryDirectory(taskId)), signalFor(signal));
-      return directory;
     },
     subscribeTargets(listener) {
       const stops = [
@@ -393,8 +375,7 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
       // is a gateway/bad-request. A Workspace wins when the caller resolved one.
       const workspaceId = options.workspaceId?.trim();
       const directory = workspaceId ? undefined
-        : options.directory?.trim() || await unwrap(remote.repositoryDirectory(taskId))
-          || await sessions.currentDirectory?.() || undefined;
+        : options.directory?.trim() || undefined;
       if (!workspaceId && !directory) throw new Error('Choose a Workspace or a directory for this task before creating a session.');
       lifetime.signal.throwIfAborted();
       let sessionId: string;
@@ -412,7 +393,6 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
           throw new TaskError(
             'session_attach_failed',
             `会话 ${created} 已创建，但工作目录没有挂上：${creationMessage(error)}`,
-            '可以重试绑定这个会话，或直接打开它。',
             { sessionId: created },
           );
         }
@@ -430,7 +410,7 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
         // the failure and the UI offers a retry instead of discarding it. The
         // store's own code and details survive so `session_already_bound` can
         // still name the Task that owns it.
-        const code = failureCode(error) ?? 'session_bind_failed';
+        const code = 'session_bind_failed';
         const details = (error as { details?: unknown }).details;
         const existingTaskId = details && typeof details === 'object'
           ? (details as { existingTaskId?: unknown }).existingTaskId
@@ -438,9 +418,6 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
         throw new TaskError(
           code,
           `会话 ${sessionId} 已创建，但绑定到任务失败：${asError(error).message}`,
-          code === 'session_already_bound'
-            ? '这个会话已经绑定到另一个任务；确认后可以解除原关联并改绑到这里。'
-            : '可以重试绑定，不需要重新创建会话。',
           {
             sessionId,
             ...(typeof existingTaskId === 'string' ? { existingTaskId } : {}),

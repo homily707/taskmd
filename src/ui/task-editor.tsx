@@ -1,231 +1,83 @@
-import { useEffect, useRef, useState, type ComponentType } from 'react';
-import type { State, TaskRecord } from '../types.js';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { TaskRecord } from '../types.js';
+import type { TaskPort } from './port.js';
 import { MarkdownPreview } from './markdown-preview.js';
-import type { TaskGraphPort } from './port.js';
-import {
-  bodyDiff, confirmDiscard, copyText, isVersionConflict, latestTask, loadDraft, storeDraft, taskFailure, taskPatch,
-} from './task-editing.js';
+import { draftKey, isVersionConflict, readDraft, storeLocal, subscribeLocal, type BodyDraft } from './task-editing.js';
+import { failure } from './shared.js';
 
-/** A body-only draft: `baseBody`/`version`/`revision` are the state it was typed against. */
-type Draft = { body: string; baseBody: string; version: string; revision: string };
-type SurfaceComponent = ComponentType<{ documentId: string; body: string; onChange(body: string): void }>;
-
-const draftKey = (id: string) => `taskmd:body-draft:${id}`;
-
-function readDraft(id: string): Draft | undefined {
-  const value = loadDraft(draftKey(id)) as Record<string, unknown> | null;
-  if (value && ['body', 'baseBody', 'version', 'revision'].every(key => typeof value[key] === 'string')) {
-    return value as Draft;
-  }
-}
-
-export interface TaskEditorProps {
-  record: TaskRecord;
-  port: TaskGraphPort;
-  state: State;
-  onChanged(): Promise<void>;
-  onDirty(dirty: boolean): void;
-  /** Right-sidebar mode: show a read-only preview first and edit on demand. */
-  compact?: boolean;
-}
-
-/** Keyed by Task: a pending read can never replace another task's draft. */
-export function TaskEditor(props: TaskEditorProps) {
-  return <BodyEditor key={props.record.task.id} {...props} />;
-}
-
-function BodyEditor({ record, port, state, onChanged, onDirty, compact = false }: TaskEditorProps) {
-  const id = record.task.id;
-  const [draft, setDraft] = useState(() => readDraft(id));
-  const [latest, setLatest] = useState({ record, revision: state.revision });
-  const [conflict, setConflict] = useState(false);
+export function useBodyDraft(record: TaskRecord, port: TaskPort, onChanged: () => Promise<void>) {
+  const [draft, setDraft] = useState(() => readDraft(record));
+  const current = useRef(draft);
+  const [latest, setLatest] = useState(record);
+  const latestRef = useRef(record);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [storageError, setStorageError] = useState(false);
-  const [source, setSource] = useState(false);
-  // Task bodies are the main reading surface in the sidebar; start expanded.
-  const [editing, setEditing] = useState(true);
-  const [Surface, setSurface] = useState<SurfaceComponent>();
-  // Bumped only when the mounted CodeMirror document must be re-seeded (load,
-  // discard, save, external change). The Atomic surface reads `markdownSource`
-  // once at mount, so replacing the document means remounting the view.
-  const [generation, setGeneration] = useState(0);
-  const seeded = useRef(draft?.body ?? record.task.body);
-  const active = useRef(true);
   const locked = useRef(false);
-  const currentDraft = useRef(draft);
-  currentDraft.current = draft;
-  const dirty = draft !== undefined;
-
-  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
-  useEffect(() => {
-    // The Atomic surface imports its package CSS, which the bundler inlines as
-    // text. Environments that cannot load it (tests, non-bundled hosts) keep
-    // working through the Markdown source textarea.
-    if (typeof document === 'undefined') return;
-    if (compact && !editing) return;
-    let canceled = false;
-    void import('./task-markdown-surface.js')
-      .then(module => { if (!canceled) setSurface(() => module.default); })
-      .catch(() => { if (!canceled) setNotice('Atomic 编辑器加载失败，已改用 Markdown 源码编辑。'); });
-    return () => { canceled = true; };
-  }, [compact, editing]);
-  useEffect(() => { setLatest({ record, revision: state.revision }); }, [record, state.revision]);
-  useEffect(() => { onDirty(dirty); return () => onDirty(false); }, [dirty, onDirty]);
+  const [error, setError] = useState('');
+  const [storageWarning, setStorageWarning] = useState(false);
+  useEffect(() => { setLatest(record); latestRef.current = record; }, [record]);
+  useEffect(() => subscribeLocal(draftKey(record), () => {
+    const next = readDraft(record); current.current = next; setDraft(next);
+  }), [record.path]);
+  const persist = (value?: BodyDraft) => {
+    current.current = value; setDraft(value);
+    setStorageWarning(!storeLocal(draftKey(record), value));
+  };
+  const dirty = !!draft;
+  const conflict = !!draft && latest.task.body !== draft.baseBody && latest.version !== draft.version;
   useEffect(() => {
     if (!dirty || typeof window === 'undefined') return;
     const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
-    window.addEventListener('beforeunload', prevent);
-    return () => window.removeEventListener('beforeunload', prevent);
+    window.addEventListener('beforeunload', prevent); return () => window.removeEventListener('beforeunload', prevent);
   }, [dirty]);
-
-  const persist = (value?: Draft) => {
-    setDraft(value);
-    setStorageError(!storeDraft(draftKey(id), value));
+  const change = (body: string) => {
+    const base = current.current ?? { body: latestRef.current.task.body, baseBody: latestRef.current.task.body, version: latestRef.current.version };
+    const changedBase = latestRef.current.task.body !== base.baseBody;
+    persist(!locked.current && !changedBase && body === base.baseBody ? undefined : { ...base, body });
   };
-
-  const changed = !!draft && draft.version !== latest.record.version;
-  const needsMerge = conflict || changed;
-  const body = draft?.body ?? latest.record.task.body;
-
-  // A concurrent save that left the body alone (title, status, dependencies)
-  // cannot conflict with a body draft: rebase the draft's base instead of
-  // forcing the user through conflict recovery.
-  useEffect(() => {
-    if (!draft || conflict || draft.version === latest.record.version) return;
-    if (latest.record.task.body !== draft.baseBody) return;
-    persist({ ...draft, baseBody: latest.record.task.body, version: latest.record.version, revision: latest.revision });
-  }, [draft, latest, conflict]);
-
-  // Typing stays possible while a save is in flight: the submitted text is
-  // captured up front, and anything typed afterwards becomes a new draft on top
-  // of the version just written instead of being silently dropped.
-  const edit = (value: string) => {
-    const base = draft ?? {
-      body, baseBody: latest.record.task.body, version: latest.record.version, revision: latest.revision,
-    };
-    // A stale draft stays explicit even when the text happens to match its base.
-    persist(needsMerge || value !== base.baseBody ? { ...base, body: value } : undefined);
-    setNotice('');
-  };
-  const save = async (merged = false) => {
-    if (!draft || locked.current || (needsMerge && !merged)) return;
-    // Merging takes the latest version as the new base; the user already
-    // reconciled the text in the editor.
-    const submitted = merged
-      ? { ...draft, baseBody: latest.record.task.body, version: latest.record.version, revision: latest.revision }
-      : draft;
-    if (merged) persist(submitted);
-    locked.current = true; setBusy(true); setError(''); setNotice('');
-    try {
-      // Body-only patch: the Store rewrites just the body, so frontmatter
-      // comments and unknown fields stay byte-identical.
-      const result = await port.apply(taskPatch({ id, version: submitted.version }, submitted.revision, { body: submitted.body }));
-      try {
-        // Only this exact submitted draft is discarded, and only after success.
-        const stored = readDraft(id);
-        if (stored?.body === submitted.body && stored.version === submitted.version) storeDraft(draftKey(id), undefined);
-      } catch { /* Reported by persist while mounted. */ }
-      if (!active.current) return;
-      const version = result.versions[id] ?? submitted.version;
-      setLatest({
-        record: { ...latest.record, task: { ...latest.record.task, body: submitted.body }, version },
-        revision: result.revision,
-      });
-      seeded.current = submitted.body;
-      const newer = currentDraft.current;
-      if (newer && newer.body !== submitted.body) {
-        // Typed while the request was in flight: keep that text as a draft on
-        // top of the version just written instead of dropping it.
-        persist({ ...newer, baseBody: submitted.body, version, revision: result.revision });
-        setConflict(false); setNotice('正文已保存；保存期间的新输入仍未保存。');
-      } else {
-        persist(undefined); setConflict(false); setNotice('正文已保存。'); setGeneration(value => value + 1);
-      }
-      try { await onChanged(); } catch (failure) { if (active.current) setError(`正文已保存，但刷新失败：${taskFailure(failure)}`); }
-    } catch (failure) {
-      if (!active.current) return;
-      setError(taskFailure(failure));
-      if (isVersionConflict(failure)) {
-        setConflict(true);
-        try { const next = await latestTask(port, id); if (active.current) setLatest(next); }
-        catch (readFailure) { if (active.current) setError(`${taskFailure(failure)}\n读取最新版本失败：${taskFailure(readFailure)}`); }
-      }
-    } finally { locked.current = false; if (active.current) setBusy(false); }
-  };
-
-  const refresh = async (discard: boolean) => {
-    if (locked.current) return;
-    if (discard && dirty && !confirmDiscard('丢弃本地正文草稿并加载最新正文？建议先复制草稿。')) return;
-    const before = currentDraft.current;
+  const save = async (): Promise<TaskRecord> => {
+    if (locked.current) throw new Error('正文正在保存，请稍后重试。');
+    const snapshot = current.current;
+    if (!snapshot) return latestRef.current;
+    const base = latestRef.current;
+    if (base.task.body !== snapshot.baseBody && base.version !== snapshot.version) throw new Error('正文已被外部修改，请先核对冲突；草稿已保留。');
     locked.current = true; setBusy(true); setError('');
     try {
-      const next = await latestTask(port, id);
-      if (!active.current) return;
-      setLatest(next);
-      if (!discard) return;
-      const after = currentDraft.current;
-      if (after && after.body !== before?.body) {
-        // Typed during the read: the newer text is a draft, not something to drop.
-        persist({ ...after, baseBody: next.record.task.body, version: next.record.version, revision: next.revision });
-        setNotice('已加载最新正文；读取期间的新输入仍未保存。');
-        return;
+      const saved = await port.updateTask(record.task.id, { body: snapshot.body }, base.version);
+      latestRef.current = saved; setLatest(saved);
+      const pending = readDraft(record);
+      if (pending?.body === snapshot.body) persist(undefined);
+      else if (pending) persist({ ...pending, baseBody: saved.task.body, version: saved.version });
+      await onChanged(); return saved;
+    } catch (cause) {
+      setError(failure(cause));
+      if (isVersionConflict(cause)) {
+        try { const next = await port.readTask(record.task.id); latestRef.current = next; setLatest(next); } catch { /* Keep the last known base and draft. */ }
       }
-      persist(undefined); setConflict(false); setNotice('已加载最新正文。'); setGeneration(value => value + 1);
-    } catch (failure) { if (active.current) setError(taskFailure(failure)); }
-    finally { locked.current = false; if (active.current) setBusy(false); }
+      throw cause;
+    } finally { locked.current = false; setBusy(false); }
   };
-
-  const copy = () => {
-    void copyText(body).then(() => setNotice('已复制正文草稿。'))
-      .catch(() => setError('复制失败，请切换源码模式后手动复制正文。'));
+  return { body: draft?.body ?? latest.task.body, dirty, conflict, busy, error, storageWarning, latest, change, save,
+    rebase: () => { if (current.current) persist({ ...current.current, baseBody: latest.task.body, version: latest.version }); setError(''); },
+    discard: () => { persist(undefined); setError(''); },
   };
-
-  const discard = () => {
-    if (confirmDiscard('放弃本地正文草稿？')) {
-      persist(undefined); setConflict(false); setError(''); setNotice('已放弃正文草稿。');
-    }
-  };
-  return <section className={`taskmd-box taskmd-editor${compact ? ' is-compact' : ''}`} aria-label="正文编辑">
-    {compact
-      ? <div className="taskmd-editor-head">
-        <h4>正文</h4>
-        {dirty && <span className="taskmd-editor-dirty" role="status">未保存</span>}
-        {editing && <button type="button" className="taskmd-quiet" disabled={busy} aria-pressed={source} onClick={() => setSource(!source)}>源码</button>}
-        <button type="button" className="taskmd-quiet" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? '收起' : '编辑'}</button>
-      </div>
-      : <div className="taskmd-editor-head"><h4>Markdown 正文</h4>
-        <button type="button" className="taskmd-quiet" disabled={busy} aria-pressed={source} onClick={() => setSource(!source)}>源码模式</button></div>}
-    {!compact && <p className="taskmd-muted">仅编辑正文；标题、状态与关系在属性面板保存。保存只改正文，frontmatter 的注释与未知字段原样保留。</p>}
-    {compact && !editing
-      ? <div className="taskmd-body-preview" title="展开编辑查看完整正文">
-        <MarkdownPreview text={body} />
-      </div>
-      : Surface && !source
-        ? <Surface documentId={`${id}:${generation}`} body={body} onChange={edit} />
-        : <textarea aria-label="任务正文 Markdown" spellCheck={false} value={body} onChange={event => edit(event.target.value)} />}
-    {dirty && !compact && <p role="status" className="taskmd-muted">正文尚未保存；草稿保存在本会话，切换任务后回来仍可继续。</p>}
-    {storageError && <p role="alert" className="taskmd-error">浏览器草稿存储不可用，离开前请复制正文。</p>}
-    {error && <pre role="alert" className="taskmd-error">{error}</pre>}
-    {notice && <p role="status">{notice}</p>}
-    {needsMerge && draft && <section className="taskmd-box taskmd-conflict" aria-label="正文冲突恢复">
-      <h4>版本已变化，本地草稿已保留</h4>
-      <p>下面是磁盘上的最新正文与本地草稿的差异。把需要的内容合并进编辑器后，再点“已人工合并”用最新版本重试；不会自动覆盖。</p>
-      <pre aria-label="最新正文与本地草稿差异">{bodyDiff(latest.record.task.body, draft.body)}</pre>
-      <details><summary>查看最新正文</summary><pre>{latest.record.task.body}</pre></details>
-      <p className="taskmd-muted">最新版本：{latest.record.version}</p>
-      <div className="taskmd-toolbar">
-        <button type="button" disabled={busy} onClick={() => { void refresh(false); }}>刷新最新版本与差异</button>
-        <button type="button" disabled={busy} onClick={copy}>复制本地草稿</button>
-        <button type="button" disabled={busy} onClick={() => { void save(true); }}>已人工合并，使用最新版本重试</button>
-      </div>
-    </section>}
-    {(!compact || editing || dirty) && <div className="taskmd-toolbar">
-      <button type="button" disabled={busy || !dirty || needsMerge} onClick={() => { void save(); }}>保存正文</button>
-      {!compact && <button type="button" disabled={busy} onClick={() => { void refresh(true); }}>加载最新正文</button>}
-      <button type="button" disabled={busy} onClick={copy}>{compact ? '复制' : '复制正文草稿'}</button>
-      <button type="button" disabled={busy || !dirty} onClick={discard}>{compact ? '放弃' : '放弃草稿'}</button>
+}
+export function TaskEditor({ editor, port, record }: { editor: ReturnType<typeof useBodyDraft>; port: TaskPort; record: TaskRecord }) {
+  const [editing, setEditing] = useState(editor.dirty);
+  const id = useId();
+  return <section className="taskmd-body" aria-label="任务正文">
+    <div className="taskmd-toolbar"><button aria-pressed={!editing} onClick={() => setEditing(false)}>阅读</button><button aria-pressed={editing} onClick={() => setEditing(true)}>编辑正文</button>
+      {editor.dirty && <button disabled={editor.busy || editor.conflict} onClick={() => void editor.save().catch(() => {})}>保存正文</button>}
+      <span className="taskmd-muted" role="status">{editor.busy ? '正在保存…' : editor.dirty ? '草稿未保存' : '已保存'}</span>
+    </div>
+    {editor.storageWarning && editor.dirty && <p className="taskmd-muted">草稿暂存在当前页面内存中；关闭页面前请保存。</p>}
+    {editor.error && <p role="alert" className="taskmd-error">{editor.error}</p>}
+    {editor.conflict && <div className="taskmd-conflict" role="alert">
+      <p>文件正文已变化。你的草稿保留在下方，请核对最新正文并合并后保存。</p>
+      <details><summary>查看磁盘上的最新正文</summary><pre tabIndex={0} aria-label="最新正文">{editor.latest.task.body}</pre></details>
+      <button onClick={editor.rebase}>已核对，以最新版本为基础保留草稿</button>
     </div>}
+    {editing ? <><label htmlFor={id}>Markdown 正文</label><textarea id={id} aria-label="Markdown 正文" value={editor.body} onChange={event => editor.change(event.target.value)} spellCheck={false} /></>
+      : <MarkdownPreview text={editor.body} taskId={record.task.id} port={port} />}
+    {editor.dirty && <details><summary>草稿操作</summary><button disabled={editor.busy} onClick={editor.discard}>丢弃草稿，使用已保存正文</button></details>}
   </section>;
 }

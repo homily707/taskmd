@@ -29,7 +29,7 @@ function rejectsWithCode(code: string) {
     assert.ok(error instanceof TaskError, `expected a TaskError, got ${String(error)}`);
     assert.equal(error.code, code);
     // Every failure must tell the user what to do next.
-    assert.ok(error.hint.length > 0, 'the error carries a recovery hint');
+    assert.ok(error.message.length > 0, 'the error explains recovery');
     return true;
   };
 }

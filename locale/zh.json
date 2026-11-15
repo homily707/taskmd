@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "taskmd 任务图",
-    "description": "用 Markdown 管理任务树与依赖图：主面板展示可交互的任务图，会话侧栏列出本会话任务。任务就是 Markdown 文件，由 taskmd CLI 读写。"
+    "title": "taskmd 任务大纲",
+    "description": "在 Home 中用 Markdown 管理任务大纲与四种手动状态，关联多个 DSH Session，并分别查看 Agent 活动。任务通过插件 UI 或 Agent 工具创建。"
   }
 }

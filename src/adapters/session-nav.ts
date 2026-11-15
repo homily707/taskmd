@@ -57,8 +57,7 @@ export function assertSessionReachable(scope: SessionReachabilityScope, sessionI
   if (archived?.includes(sessionId)) {
     throw new TaskError(
       'session_archived',
-      `会话 ${sessionId} 已归档，DSH 不允许直接打开归档会话。`,
-      '先在 DSH 侧栏恢复这个会话再打开；任务与绑定都没有改动。',
+      `会话 ${sessionId} 已归档，请先在 DSH 侧栏恢复后再打开。`,
     );
   }
   const allowed = (scope.get('remoteAccess') as RemoteAccessService | undefined)
@@ -66,16 +65,14 @@ export function assertSessionReachable(scope: SessionReachabilityScope, sessionI
   if (allowed === false) {
     throw new TaskError(
       'session_forbidden',
-      `当前连接没有访问会话 ${sessionId} 的权限。`,
-      '这个会话可能属于别的机器或账户；建议解除关联后改绑可访问的会话。任务与绑定都没有改动。',
+      `当前连接没有访问会话 ${sessionId} 的权限，可以解除关联后改绑可访问的会话。`,
     );
   }
   const catalog = (scope.get('sessions') as SessionCatalogService | undefined)?.list.getSnapshot();
   if (catalog?.phase === 'ready' && catalog.byId[sessionId] === undefined) {
     throw new TaskError(
       'session_not_found',
-      `会话 ${sessionId} 不存在：DSH 的会话列表里没有它，可能已被删除。`,
-      '建议解除这条关联，避免任务指向一个打不开的会话。任务数据没有被改动。',
+      `会话 ${sessionId} 不存在，可能已删除。可以解除这条关联，任务数据不受影响。`,
     );
   }
 }
