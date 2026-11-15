@@ -195,6 +195,7 @@ export const styles = `
 .taskmd-detail-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-inline-start:auto}
 .taskmd-detail-actions label{margin:0;white-space:nowrap}
 .taskmd-detail-actions select{width:auto;min-width:104px}
+.taskmd-danger-option{color:var(--tm-err)}
 .taskmd-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}
 .taskmd-toolbar label{margin:0}
 .taskmd-toolbar [aria-pressed=true]{background:var(--tm-accent-soft);border-color:var(--tm-accent);color:var(--tm-accent)}

@@ -89,14 +89,25 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
   };
   return <article className="taskmd-detail">
     <header className="taskmd-detail-head"><h2 className="taskmd-detail-title" ref={heading} tabIndex={-1}>{record.task.title}</h2><div className="taskmd-detail-actions">
-      <label htmlFor={`${id}-status`}>任务状态</label><select id={`${id}-status`} aria-label="任务状态" value={record.task.status} disabled={busy} onChange={event => {
-        run(() => port.updateTask(record.task.id, { status: event.target.value as TaskStatus }, record.version));
-      }}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-      <button disabled={busy} onClick={() => run(() => port.updateTask(record.task.id, { archived: !record.task.archived }, record.version))}>{record.task.archived ? '恢复任务' : '归档任务'}</button>
+      <label htmlFor={`${id}-actions`}>任务操作</label>
+      <select id={`${id}-actions`} aria-label="任务操作" value="" disabled={busy} onChange={event => {
+        const value = event.target.value;
+        if (value === 'archive') run(() => port.updateTask(record.task.id, { archived: !record.task.archived }, record.version));
+        else if (value === 'delete') setConfirming(true);
+        else if (value) run(() => port.updateTask(record.task.id, { status: value as TaskStatus }, record.version));
+        event.target.value = '';
+      }}>
+        <option value="">{record.task.archived ? `已归档 · ${statusLabels[record.task.status]}` : statusLabels[record.task.status]}</option>
+        {Object.entries(statusLabels).filter(([value]) => value !== record.task.status).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        <option value="archive">{record.task.archived ? '恢复任务' : '归档'}</option>
+        <option value="delete" className="taskmd-danger-option">删除{subtree > 1 ? `（含 ${subtree - 1} 个子任务）` : ''}</option>
+      </select>
       {confirming
-        ? <button className="taskmd-danger" disabled={busy} onClick={() => run(() => port.deleteTask(record.task.id, record.version))}>确认删除{subtree > 1 ? `（含 ${subtree - 1} 个子任务）` : ''}</button>
-        : <button disabled={busy} onClick={() => setConfirming(true)}>删除任务</button>}
-      {record.task.archived && <span className="taskmd-agent-chip is-archived">已归档</span>}
+        ? <>
+          <button className="taskmd-danger" disabled={busy} onClick={() => run(() => port.deleteTask(record.task.id, record.version))}>确认删除</button>
+          <button disabled={busy} onClick={() => setConfirming(false)}>取消</button>
+        </>
+        : null}
     </div></header>
     {error && <p role="alert" className="taskmd-error">{error}</p>}
     <TaskEditor record={record} port={port} editor={editor} />

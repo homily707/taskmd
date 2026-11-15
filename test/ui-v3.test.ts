@@ -190,8 +190,8 @@ test('body draft survives navigation and external conflict without creating Sess
 test('status-only external change rebases body save and retains manual four states', async t => {
   const f = fixture(); const view = await mount(t, createElement(TaskmdDetailPanel, { port: f.port, taskId: 'a' }));
   await click(view, '编辑正文'); await body(view, 'draft after status');
-  const select = view.root.findByProps({ 'aria-label': '任务状态' });
-  assert.deepEqual(select.findAllByType('option').map(node => node.props.value), ['todo', 'in_progress', 'done', 'canceled']);
+  const select = view.root.findByProps({ 'aria-label': '任务操作' });
+  assert.deepEqual(select.findAllByType('option').map(node => node.props.value), ['', 'in_progress', 'done', 'canceled', 'archive', 'delete']);
   await act(async () => select.props.onChange({ target: { value: 'done' } }));
   await click(view, '保存正文');
   assert.equal(f.state().tasks[0]!.task.status, 'done'); assert.equal(f.state().tasks[0]!.task.body, 'draft after status');
@@ -276,19 +276,21 @@ test('save completion after navigation preserves a newer draft reverted to origi
   assert.equal(f.state().tasks[0]!.task.body, '# Saved body');
 });
 
-test('Sidebar shows currently bound task with header archive and confirmed cascade delete', async t => {
+test('Sidebar shows currently bound task with action dropdown and confirmed cascade delete', async t => {
   const f = fixture([record('a'), record('child', { parent: 'a' })]);
   const capability = sessions({ list: async () => [{ taskId: 'a', sessionId: 'current', createdAt: '' }] });
   const view = await mount(t, createElement(TaskmdSidebar, { port: f.port, sessions: capability, sessionId: 'current', onOpenTask() {} }));
   assert.match(text(view.root), /Task a/);
-  // Archive is one click in the header.
-  await click(view, '归档任务'); assert.equal(f.state().tasks.find(item => item.task.id === 'a')!.task.archived, true);
-  await click(view, '恢复任务'); assert.equal(f.state().tasks.find(item => item.task.id === 'a')!.task.archived, false);
-  // Delete needs a second confirming click, then removes the subtree.
-  await click(view, '删除任务');
+  const menu = view.root.findByProps({ 'aria-label': '任务操作' });
+  // The closed menu reads as the current status; options offer other states, archive and cascade delete.
+  assert.match(text(menu), /待办/);
+  await act(async () => { menu.props.onChange({ target: { value: 'archive' } }); });
+  assert.equal(f.state().tasks.find(item => item.task.id === 'a')!.task.archived, true);
+  await act(async () => { view.root.findByProps({ 'aria-label': '任务操作' }).props.onChange({ target: { value: 'archive' } }); });
+  assert.equal(f.state().tasks.find(item => item.task.id === 'a')!.task.archived, false);
+  await act(async () => { view.root.findByProps({ 'aria-label': '任务操作' }).props.onChange({ target: { value: 'delete' } }); });
   assert.equal(f.state().tasks.length, 2);
-  assert.match(text(view.root), /含 1 个子任务/);
-  await click(view, '确认删除（含 1 个子任务）');
+  await click(view, '确认删除');
   assert.equal(f.state().tasks.length, 0);
 });
 test('relative Markdown image uses attachment port and executable links stay inert', async t => {
