@@ -146,14 +146,22 @@ test('recent Sessions are capped at five rows sorted by latest update', async t 
   assert.match(copy, /最近会话/); assert.match(copy, /最近会话/); assert.match(copy, /次近会话/); assert.match(copy, /第三近会话/); assert.match(copy, /第四近会话/); assert.match(copy, /第五近会话/);
   assert.doesNotMatch(copy, /最旧会话/);
 });
-test('entering a Session highlights its bound task row', async t => {
+test('entering a Session highlights its bound task row; an unbound Session selects nothing', async t => {
   const f = fixture([record('a'), record('b')]);
   const capability = sessions({ list: async () => [{ taskId: 'b', sessionId: 's-live', createdAt: '2026-01-01T00:00:00Z' }] });
-  const view = await mount(t, createElement(TaskmdLeftSidebar, { port: f.port, sessions: capability, wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {}, activeSessionId: 's-live' }));
-  const rowB = view.root.findAllByProps({ className: 'taskmd-nav-hit' }).find(node => node.props['aria-label'].includes('Task b'))!;
-  assert.equal(rowB.props['aria-current'], 'true');
+  const props = { port: f.port, sessions: capability, wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {} };
+  const view = await mount(t, createElement(TaskmdLeftSidebar, props));
+  // A manual pick highlights its own row while no Session is active.
   const rowA = view.root.findAllByProps({ className: 'taskmd-nav-hit' }).find(node => node.props['aria-label'].includes('Task a'))!;
-  assert.equal(rowA.props['aria-current'], undefined);
+  await act(async () => { rowA.props.onClick(); });
+  assert.equal(view.root.findAllByProps({ className: 'taskmd-nav-hit' }).find(node => node.props['aria-label'].includes('Task a'))!.props['aria-current'], 'true');
+  // Entering a bound Session moves the highlight to its Task.
+  await act(async () => view.update(createElement(TaskmdLeftSidebar, { ...props, activeSessionId: 's-live' })));
+  assert.equal(view.root.findAllByProps({ className: 'taskmd-nav-hit' }).find(node => node.props['aria-label'].includes('Task b'))!.props['aria-current'], 'true');
+  assert.equal(view.root.findAllByProps({ className: 'taskmd-nav-hit' }).find(node => node.props['aria-label'].includes('Task a'))!.props['aria-current'], undefined);
+  // An active Session with no bound Task clears the highlight instead of keeping the stale pick.
+  await act(async () => view.update(createElement(TaskmdLeftSidebar, { ...props, activeSessionId: 's-unbound' })));
+  assert.ok(view.root.findAllByProps({ 'aria-current': 'true' }).length === 0);
 });
 test('body draft survives navigation and external conflict without creating Session', async t => {
   const f = fixture([record('a'), record('b')]); let creates = 0;

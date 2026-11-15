@@ -60,14 +60,14 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
   const taskCount = state?.tasks.filter(record => !record.task.archived).length;
   const homeName = state?.settings.homeDirectory.split(/[\\/]/).filter(Boolean).pop();
   // Entering a Session owns the row highlight: its bound Task, if any, is the
-  // selection. A manual pick stays until some Session takes over.
+  // selection; a Session with no bound Task selects nothing.
   let activeTaskId: string | undefined;
   if (activeSessionId) {
     for (const [taskId, list] of agent.bindingsByTask) {
       if (list.some(binding => binding.sessionId === activeSessionId)) { activeTaskId = taskId; break; }
     }
   }
-  const highlighted = activeTaskId ?? selected;
+  const highlighted = activeSessionId ? activeTaskId : selected;
 
   const clearHover = useCallback(() => {
     if (hoverOpen.current !== undefined) { window.clearTimeout(hoverOpen.current); hoverOpen.current = undefined; }
@@ -290,7 +290,7 @@ function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
       {rows.map(status => {
         const meta = status.pending ? '等你处理' : status.fresh ? '有新结果'
           : status.running ? (status.runningSubagents ? `运行 · ${status.runningSubagents} 子代理` : '运行中')
-          : `最近 · ${relativeActivity(status, Date.now())}`;
+          : relativeActivity(status, Date.now());
         return <button type="button" key={status.sessionId} className="taskmd-active-session"
           title={status.sessionId} onClick={() => void open(status.sessionId)}>
           <span className={`taskmd-session-dot is-${levelOf(status)}`} aria-hidden="true" />
