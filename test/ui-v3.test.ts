@@ -487,3 +487,34 @@ test('review mode resets custom prompt on mode switch and keeps normal launch in
   assert.match(sent, /请根据任务正文开展工作/);
   assert.doesNotMatch(sent, /只审查，不修改文件/);
 });
+
+test('right sidebar displays one selected task with a clear task switcher', async t => {
+  const f = fixture([record('a'), record('b')]);
+  const capability = sessions({ list: async () => [
+    { taskId: 'a', sessionId: 'current', createdAt: '' },
+    { taskId: 'b', sessionId: 'current', createdAt: '' },
+  ] });
+  const opened: string[] = [];
+  const view = await mount(t, createElement(TaskmdSidebar, { port: f.port, sessions: capability, sessionId: 'current', onOpenTask: id => opened.push(id) }));
+  assert.equal(view.root.findAllByProps({ className: 'taskmd-detail-title' }).length, 1);
+  assert.equal(text(view.root.findByProps({ className: 'taskmd-detail-title' })), 'Task a');
+  const switches = view.root.findAllByType('button').filter(node => node.props.className?.includes('taskmd-session-switch'));
+  assert.equal(switches.length, 2);
+  await act(async () => { switches[1]!.props.onClick(); });
+  assert.equal(text(view.root.findByProps({ className: 'taskmd-detail-title' })), 'Task b');
+  await click(view, '打开完整任务 ↗');
+  assert.deepEqual(opened, ['b']);
+});
+
+test('right detail exposes session launch and compact editor actions', async t => {
+  const f = fixture();
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port: f.port, sessions: sessions(), taskId: 'a' }));
+  assert.ok(view.root.findAllByType('button').some(node => text(node) === '＋ 新建 Session'));
+  assert.ok(view.root.findAllByProps({ className: 'taskmd-editor-tabs' }).length);
+  assert.ok(view.root.findAllByProps({ className: 'taskmd-status-tag is-todo' }).length);
+  await click(view, '编辑正文');
+  await body(view, 'updated body');
+  assert.ok(view.root.findAllByProps({ className: 'taskmd-save-indicator is-dirty' }).length);
+  await click(view, '保存正文');
+  assert.equal(f.state().tasks[0]!.task.body, 'updated body');
+});
