@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { TaskFiles } from '../src/core/files.js';
-import { createDocument } from '../src/core/document.js';
+import { createDocument, parseInboxDocument } from '../src/core/document.js';
 import { TaskError, type HomeSettings } from '../src/types.js';
 
 async function fixture(t: TestContext) {
@@ -60,6 +60,20 @@ test('only marked documents are imported and malformed managed files are diagnos
   assert.equal(state.tasks.length, 1); assert.equal(state.diagnostics.length, 2);
   await writeFile(generated.path, generated.content.replace('Generated', 'Externally edited'));
   assert.equal((await files.read(generated.task.id)).task.title, 'Externally edited');
+});
+
+test('summary is a managed frontmatter field surfaced by create, update and inbox parsing', async t => {
+  const { files } = await fixture(t);
+  const created = await files.create({ title: 'Summary task', summary: '一句话摘要', body: '# B\n' });
+  assert.match(created.content, /\nsummary: 一句话摘要\n/);
+  assert.equal((await files.read(created.task.id)).task.summary, '一句话摘要');
+  const updated = await files.update(created.task.id, { summary: '更新后的摘要' }, created.version);
+  assert.equal(updated.task.summary, '更新后的摘要');
+  assert.match(updated.content, /\nsummary: 更新后的摘要\n/);
+  await assert.rejects(files.update(updated.task.id, { summary: 'x'.repeat(501) }, updated.version), errorCode('invalid_document'));
+  await assert.rejects(files.update(updated.task.id, { summary: 42 } as never, updated.version), errorCode('invalid_document'));
+  assert.equal(parseInboxDocument('---\ntaskmd: 0.3\ntitle: From inbox\nsummary: 来自 inbox\n---\nbody\n').summary, '来自 inbox');
+  assert.equal(parseInboxDocument('---\ntaskmd: 0.3\ntitle: No summary\n---\nbody\n').summary, undefined);
 });
 
 test('conditional update and deletion preserve external edits and report latest version', async t => {

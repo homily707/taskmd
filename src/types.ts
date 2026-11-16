@@ -3,6 +3,8 @@ export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'canceled';
 export interface Task {
   id: string;
   title: string;
+  /** One-line digest shown in task lists; written by the Agent. */
+  summary?: string;
   status: TaskStatus;
   parent: string | null;
   order: number;
@@ -42,7 +44,7 @@ export interface InboxState {
   diagnostics: Diagnostic[];
 }
 export interface State { settings: HomeSettings; tasks: TaskRecord[]; diagnostics: Diagnostic[]; inbox: InboxState }
-export interface CreateTaskInput { title: string; parent?: string | null; body?: string }
+export interface CreateTaskInput { title: string; parent?: string | null; body?: string; summary?: string }
 export type TaskChanges = Partial<Omit<Task, 'id'>>;
 
 export interface TaskSessionBinding {

@@ -270,7 +270,8 @@ export class TaskFiles {
         const id = draft.id ?? this.inboxIds.get(path) ?? randomUUID();
         if (!draft.id) this.inboxIds.set(path, id);
         const task: Task = {
-          id, title: draft.title, status: draft.status ?? 'todo', parent: draft.parent ?? null,
+          id, title: draft.title, ...(draft.summary !== undefined ? { summary: draft.summary } : {}),
+          status: draft.status ?? 'todo', parent: draft.parent ?? null,
           order: draft.order ?? 0, archived: draft.archived ?? false, body: draft.body,
         };
         validateTask(task);
@@ -436,12 +437,13 @@ export class TaskFiles {
   create(input: CreateTaskInput): Promise<TaskRecord> {
     return serialized(async () => {
       await this.prepare(); this.configured();
-      if (!object(input) || Object.keys(input).some(key => !['title', 'parent', 'body'].includes(key))) throw new TaskError('invalid_document', 'Invalid create input.');
+      if (!object(input) || Object.keys(input).some(key => !['title', 'parent', 'body', 'summary'].includes(key))) throw new TaskError('invalid_document', 'Invalid create input.');
       const state = await this.scan();
       const parent = input.parent ?? null;
       const siblings = state.tasks.filter(record => record.task.parent === parent);
       const order = Math.max(-1, ...siblings.map(record => record.task.order)) + 1;
-      const task: Task = { id: randomUUID(), title: input.title, parent, status: 'todo', order, archived: false, body: input.body ?? '' };
+      const task: Task = { id: randomUUID(), title: input.title, ...(input.summary !== undefined ? { summary: input.summary } : {}),
+        parent, status: 'todo', order, archived: false, body: input.body ?? '' };
       const content = createDocument(task);
       this.validateParent(task, state);
       await this.assertDirectory();

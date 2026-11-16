@@ -7,15 +7,16 @@ import type { TaskmdRemote } from './remote.js';
 export function taskTool(api: Omit<TaskmdRemote, 'watch'>) {
   return defineTool({
     name: 'taskmd',
-    description: 'Organize Home tasks and their DSH conversation links. Create tasks through this tool; then read or edit the returned Markdown path normally. Task status is manual and independent of Agent activity. list returns summaries; read returns the full task and version.',
+    description: 'Organize Home tasks and their DSH conversation links. Create tasks through this tool; then read or edit the returned Markdown path normally. Task status is manual and independent of Agent activity. list returns id, title, summary, status and path for every task, which is the cheapest way to find related tasks; read returns the full task and version.',
     parameters: {
       action: { type: 'string', required: true, enum: ['list', 'read', 'create', 'update', 'delete', 'configure', 'bindings', 'bind', 'unbind', 'attachment'] },
       taskId: { type: 'string', description: 'Task ID for read, update, delete, bind, unbind or attachment.' },
       title: { type: 'string', description: 'Title of a new task.' },
+      summary: { type: 'string', description: 'One-line digest of a new task, usually written by the Agent when work starts.' },
       body: { type: 'string', description: 'Markdown body of a new task.' },
       parent: { type: 'string', description: 'Optional parent ID when creating a task.' },
       changes: { type: 'object', additionalProperties: false, description: 'Fields to update; only explicit changes are applied.', properties: {
-        title: { type: 'string' }, body: { type: 'string' }, status: { type: 'string', enum: ['todo', 'in_progress', 'done', 'canceled'] },
+        title: { type: 'string' }, summary: { type: 'string' }, body: { type: 'string' }, status: { type: 'string', enum: ['todo', 'in_progress', 'done', 'canceled'] },
         parent: { oneOf: [{ type: 'string' }, { type: 'null' }] }, order: { type: 'number' }, archived: { type: 'boolean' },
       } },
       expectedVersion: { type: 'string', description: 'Version from read, required for update or delete. Reread and merge after a conflict. Delete removes the task and its whole subtree.' },
@@ -40,7 +41,7 @@ export function taskTool(api: Omit<TaskmdRemote, 'watch'>) {
           break;
         }
         case 'read': value = await api.read(required(args.taskId, 'taskId')); break;
-        case 'create': value = await api.create({ title: required(args.title, 'title'), body: args.body, parent: args.parent }); break;
+        case 'create': value = await api.create({ title: required(args.title, 'title'), body: args.body, parent: args.parent, summary: args.summary }); break;
         case 'update': value = await api.update(required(args.taskId, 'taskId'), args.changes ?? {}, required(args.expectedVersion, 'expectedVersion')); break;
         case 'delete': value = { deleted: await api.removeTask(required(args.taskId, 'taskId'), required(args.expectedVersion, 'expectedVersion')) }; break;
         case 'configure': {

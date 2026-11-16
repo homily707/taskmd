@@ -4,8 +4,8 @@ import { TaskError, type Task, type TaskChanges, type TaskStatus } from '../type
 
 export const MAX_DOCUMENT = 1024 * 1024;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const fields = new Set(['taskmd', 'id', 'title', 'status', 'parent', 'order', 'archived']);
-const changesFields = new Set(['title', 'status', 'parent', 'order', 'archived', 'body']);
+const fields = new Set(['taskmd', 'id', 'title', 'summary', 'status', 'parent', 'order', 'archived']);
+const changesFields = new Set(['title', 'summary', 'status', 'parent', 'order', 'archived', 'body']);
 
 export function hash(content: string | Buffer): string {
   return createHash('sha256').update(content).digest('hex');
@@ -19,6 +19,7 @@ export function validateTask(task: Task): void {
   if (typeof task.title !== 'string' || !task.title.trim()) invalid('Title must be a nonempty string.');
   if (!['todo', 'in_progress', 'done', 'canceled'].includes(task.status)) invalid('Invalid task status.');
   if (task.parent !== null) validateId(task.parent);
+  if (task.summary !== undefined && (typeof task.summary !== 'string' || task.summary.length > 500)) invalid('Summary must be a string of at most 500 characters.');
   if (!Number.isSafeInteger(task.order)) invalid('Order must be a safe integer.');
   if (typeof task.archived !== 'boolean') invalid('Archived must be a boolean.');
   if (typeof task.body !== 'string') invalid('Body must be a string.');
@@ -49,8 +50,8 @@ function parse(content: string) {
   catch { invalid('YAML aliases are not supported.'); }
   if (data.taskmd !== 0.3 && data.taskmd !== '0.3') invalid('Unsupported taskmd format marker.');
   for (const key of Object.keys(data)) if (!fields.has(key)) invalid(`Unknown task field: ${key}.`);
-  const task = { id: data.id, title: data.title, status: data.status, parent: data.parent,
-    order: data.order, archived: data.archived, body: split.body } as Task;
+  const task = { id: data.id, title: data.title, ...(data.summary !== undefined ? { summary: data.summary } : {}),
+    status: data.status, parent: data.parent, order: data.order, archived: data.archived, body: split.body } as Task;
   validateTask(task);
   return { task, document, ...split };
 }
@@ -60,6 +61,7 @@ export function parseTask(content: string): Task { return parse(content).task; }
 export interface InboxDraft {
   id?: string;
   title: string;
+  summary?: string;
   status?: TaskStatus;
   parent?: string | null;
   order?: number;
@@ -76,6 +78,7 @@ export function parseInboxDocument(content: string): InboxDraft {
   if (data.taskmd !== 0.3 && data.taskmd !== '0.3') invalid('Unsupported taskmd format marker.');
   for (const key of Object.keys(data)) if (!fields.has(key)) invalid(`Unknown task field: ${key}.`);
   if (typeof data.title !== 'string' || !data.title.trim()) invalid('Title must be a nonempty string.');
+  if (data.summary !== undefined && (typeof data.summary !== 'string' || data.summary.length > 500)) invalid('Summary must be a string of at most 500 characters.');
   if (data.id !== undefined) validateId(data.id);
   if (data.status !== undefined && !['todo', 'in_progress', 'done', 'canceled'].includes(data.status as string)) invalid('Invalid task status.');
   if (data.parent !== undefined && data.parent !== null) validateId(data.parent);
@@ -85,6 +88,7 @@ export function parseInboxDocument(content: string): InboxDraft {
     title: data.title,
     body: split.body,
     ...(data.id !== undefined ? { id: data.id as string } : {}),
+    ...(data.summary !== undefined ? { summary: data.summary as string } : {}),
     ...(data.status !== undefined ? { status: data.status as TaskStatus } : {}),
     ...(data.parent !== undefined ? { parent: data.parent as string | null } : {}),
     ...(data.order !== undefined ? { order: data.order as number } : {}),
