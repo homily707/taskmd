@@ -65,9 +65,15 @@ export function TaskEditor({ editor, port, record }: { editor: ReturnType<typeof
   const [editing, setEditing] = useState(editor.dirty);
   const id = useId();
   return <section className="taskmd-body" aria-label="任务正文">
-    <div className="taskmd-toolbar"><button aria-pressed={!editing} onClick={() => setEditing(false)}>阅读</button><button aria-pressed={editing} onClick={() => setEditing(true)}>编辑正文</button>
-      {editor.dirty && <button disabled={editor.busy || editor.conflict} onClick={() => void editor.save().catch(() => {})}>保存正文</button>}
-      <span className="taskmd-muted" role="status">{editor.busy ? '正在保存…' : editor.dirty ? '草稿未保存' : '已保存'}</span>
+    <div className="taskmd-toolbar taskmd-editor-toolbar">
+      <div className="taskmd-editor-tabs" role="group" aria-label="正文视图">
+        <button type="button" aria-pressed={!editing} onClick={() => setEditing(false)}>阅读</button>
+        <button type="button" aria-pressed={editing} onClick={() => setEditing(true)}>编辑正文</button>
+      </div>
+      <span className={`taskmd-save-indicator${editor.dirty ? ' is-dirty' : ''}`} role="status">
+        <span className="taskmd-save-dot" aria-hidden="true" />{editor.busy ? '正在保存…' : editor.dirty ? '草稿未保存' : '已保存'}
+      </span>
+      {editor.dirty && <button type="button" className="taskmd-save-button" disabled={editor.busy || editor.conflict} onClick={() => void editor.save().catch(() => {})}>保存正文</button>}
     </div>
     {editor.storageWarning && editor.dirty && <p className="taskmd-muted">草稿暂存在当前页面内存中；关闭页面前请保存。</p>}
     {editor.error && <p role="alert" className="taskmd-error">{editor.error}</p>}
