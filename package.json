@@ -1,6 +1,6 @@
 {
   "name": "taskmd",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "private": false,
   "description": "DSH Home task outline, Markdown and Agent conversations",
   "type": "module",
