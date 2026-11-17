@@ -43,8 +43,8 @@ export async function continueLaunch(capability: SessionCapability, taskId: stri
   if (!progress.opened) { await capability.open(id); progress.opened = true; persist(); }
 }
 
-export function TaskSessionLauncher({ record, settings, capability, save, body, launcherRef, onChanged }: {
-  record: TaskRecord; settings: HomeSettings; capability: SessionCapability; save(): Promise<TaskRecord>; body?: string; launcherRef?: Ref<HTMLDetailsElement>; onChanged(): void;
+export function TaskSessionLauncher({ record, settings, capability, save, body, launcherRef, expanded, onExpandedChange, onChanged }: {
+  record: TaskRecord; settings: HomeSettings; capability: SessionCapability; save(): Promise<TaskRecord>; body?: string; launcherRef?: Ref<HTMLDetailsElement>; expanded?: boolean; onExpandedChange?(value: boolean): void; onChanged(): void;
 }) {
   const workspaces = useWorkspaces(capability);
   const [chosen, setChosen] = useState(settings.homeWorkspaceId ?? '');
@@ -102,7 +102,7 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
   const previewRecord = { ...record, task: { ...record.task, body: body ?? record.task.body } };
   const defaultPrompt = reviewMode ? reviewPrompt(previewRecord) : initialPrompt(previewRecord);
   const selectedModel = catalog?.groups.find(group => group.id === model?.provider)?.models.find(item => item.id === model?.model);
-  return <details ref={launcherRef} className="taskmd-launcher"><summary><span className="taskmd-section-icon" aria-hidden="true">＋</span> 新建 Session <span className="taskmd-section-hint">启动 Agent</span></summary>
+  return <details ref={launcherRef} className="taskmd-launcher" open={expanded} onToggle={event => onExpandedChange?.(event.currentTarget.open)}><summary><span className="taskmd-section-icon" aria-hidden="true">＋</span> 新建 Session <span className="taskmd-section-hint">启动 Agent</span></summary>
     <p className="taskmd-muted">保存正文后发送任务快照。默认在 Home 创建会话，也可选择其他仓库。</p>
     <fieldset disabled={busy || !!current}><legend>会话选项</legend>
       <label htmlFor={`${ids}-repo`}>Session 仓库</label><select id={`${ids}-repo`} aria-label="Session 仓库" value={chosen} onChange={event => setChosen(event.target.value)}>

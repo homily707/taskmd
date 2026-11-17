@@ -29,6 +29,11 @@ interface SidebarRightService {
   openResource(address: string, options?: { kind?: string; destination?: 'sidebar' | 'float' }): void;
 }
 
+interface ContextMenuService {
+  open(target: { kind: 'session'; value: { sessionId: string; displayTitle: string } }, point: { x: number; y: number }): void;
+  registeredKinds?: { getSnapshot(): readonly string[] };
+}
+
 interface LayoutService {
   selectPanel(panelId: string | null): void;
 }
@@ -363,11 +368,17 @@ async function setup(ctx: ClientContext): Promise<void> {
   const listeners = new Set<() => void>();
   let sidebarSlotMounted = false;
   let disposeTaskSidebar: Dispose | undefined;
+  function openSessionMenu(sessionId: string, displayTitle: string, point: { x: number; y: number }): boolean {
+    const menus = ctx.get('contextMenus') as ContextMenuService | undefined;
+    if (!menus || (menus.registeredKinds && !menus.registeredKinds.getSnapshot().includes('session'))) return false;
+    menus.open({ kind: 'session', value: { sessionId, displayTitle } }, point);
+    return true;
+  }
   function TaskBrowser({ wide, expandSidebar }: { wide: boolean; expandSidebar(): void }) {
     const activeSessionId = useSyncExternalStore(subscribeMountedSessionId, getMountedSessionId, getMountedSessionId);
     return <TaskmdLeftSidebar port={port} sessions={sessions} wide={wide} activeSessionId={activeSessionId}
       expandSidebar={expandSidebar} showSessions={() => setSidebarMode('sessions')}
-      onActivateSession={activateSession} onOpenTask={openTaskPanel} />;
+      onActivateSession={activateSession} onOpenTask={openTaskPanel} onSessionMenu={openSessionMenu} />;
   }
   const installTaskSidebar = () => {
     if (sidebarSlotMounted && sidebarMode === 'tasks' && !disposeTaskSidebar) {
