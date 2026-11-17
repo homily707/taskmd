@@ -11,7 +11,8 @@ export function reviewPrompt(record: TaskRecord): string {
   return [
     `请作为独立代码审查者审查与以下任务相关的改动。只审查，不修改文件、不自动修复、不提交代码。`,
     `任务：${record.task.title}`, `任务 ID：${record.task.id}`, `任务 Markdown：${record.path}`,
-    '', '任务要求：', record.task.body || '（暂无正文。）',
+    '',
+    '先调用 taskmd 工具（action=read，taskId 为上述任务 ID）读取最新任务正文；参考已有工作笔记和验证材料，避免重复调查，但关键结论仍需独立核实。',
     '', '审查步骤：',
     '1. 先查看当前工作区的 Git 状态、暂存与未提交 Diff。若任务描述提供了 PR、提交或比较基线，也检查对应差异。不要假定当前分支上的所有历史变更都属于本任务。',
     '2. 仅选择与本任务有关的变更文件。阅读必要的相邻代码、调用链和项目规则（如 AGENTS.md / CLAUDE.md），但不要无差别扫描整个仓库。若无法确定对应文件或比较范围，明确指出限制，不要猜测。',
