@@ -27,7 +27,7 @@ test('launch prompt contains task identity and guidance but not a task body snap
   assert.match(prompt, /工作笔记/);
   assert.match(prompt, /工作材料/);
   assert.doesNotMatch(prompt, /CONFIDENTIAL_TASK_BODY_NOT_FOR_PROMPT/);
-  assert.doesNotMatch(prompt, /AGENTS\\.md/);
+  assert.doesNotMatch(prompt, /AGENTS\.md/);
 });
 
 test('review prompt reads the live task without embedding the body or writing changes', () => {
