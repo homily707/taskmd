@@ -99,3 +99,9 @@ pnpm peers check
 Host 的 Cordis、DSH 协议及工具包由宿主提供；Client 的 React 和 client-store 使用宿主共享模块。`pnpm-workspace.yaml` 为已发布 client-store 中仅列作开发依赖的 Zustand/Immer 补足 Node 测试依赖，没有把这些副本打进 Client。
 
 测试在独立临时目录中覆盖文件冲突、结构约束、附件路径、监听、绑定隔离、UI 草稿、工作区选择、Session 启动续接和 Agent 工具。自动化测试与浏览器实机验收应分别记录。
+
+## 安装与更新
+
+推荐从 DSH 插件管理器使用 npm Registry 包名 `taskmd` 安装，以使用 DSH 内置的版本检查和更新功能。GitHub 直装仍可使用，但不会自动切换成 Registry 更新。
+
+维护者可以通过 GitHub 版本 tag 发布 npm 新版本；首次发布、npm Trusted Publishing 设置和更新步骤见 [发布说明](docs/publishing.md)。在 npm 首次发布完成前，npm 安装渠道尚不可用。
