@@ -98,5 +98,9 @@
     "zod": "4.6.6",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.3",
     "@deepseek-ai/dsh-agent": "0.2.2-rc.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }
