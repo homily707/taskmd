@@ -6,17 +6,17 @@ DSH Home 中的任务大纲、Markdown 和关联会话。点击有会话的任�
 
 1. 启用 taskmd，在任务面板设置中选择一个 DSH Workspace 作为 Home。
 2. 指定 Home 内的任务目录，默认 `./tasks`。
-3. 通过插件 UI 或 `taskmd` Agent 工具创建任务。直接放在任务目录根部的普通手工 Markdown 不会自动导入；把合法任务文档放入 `<tasksDirectory>/inbox/` 会被自动导入，并创建、绑定一个 Session、发送任务快照。
+3. 通过插件 UI 或 `taskmd` Agent 工具创建任务。直接放在任务目录根部的普通手工 Markdown 不会自动导入；把合法任务文档放入 `<tasksDirectory>/inbox/` 会被自动导入，并创建、绑定一个 Session、发送任务入口 Prompt。
 4. 编辑任务正文、调整大纲、切换状态、归档或关联已有 Session。
 5. 从任务启动 Session 时，默认选择 Home，也可以选择 **全部 DSH Workspace/repo** 中的任意项目。这个选择不会改变 Home 或任务位置。
 
 通过 UI 或 Agent 工具创建任务时，如果未提供正文，默认生成「目标、工作内容、进展、工作笔记、工作材料」五个 Markdown 二级标题；提供正文时保持原样，Inbox 导入也保留用户编写的正文。创建后的任务是普通 Markdown，可以用 Agent 文件工具或编辑器直接修改。UI 会监听变化，保留尚未保存的正文草稿，并在冲突时显示磁盘上的最新正文。Inbox 文件必须是带完整 frontmatter 的 taskmd 文档；不合法文件会留在 inbox 并显示诊断。Inbox 文档中的相对附件路径按导入后的任务目录解析，请按最终位置书写。
 
-启动 Session 会先保存正文，随后按顺序创建会话、关联任务、应用模型选择、发送任务入口 Prompt 并打开会话。Prompt 只传任务标识和维护指引，Agent 通过 taskmd read 读取最新正文；Review 模式也不会直接注入任务正文。某一步失败后可以从已知的 Session 继续；发送重试保留原 requestId 和正文。创建结果不明时暂停重建，需核对已有会话。
+启动 Session 会先保存正文，随后按顺序创建会话、关联任务、应用模型选择、发送任务入口 Prompt 并打开会话。Prompt 只传任务标识和维护指引，Agent 通过 taskmd 工具读取最新正文；Review 模式也不会直接注入任务正文。某一步失败后可以从已知的 Session 继续；发送重试保留原 requestId 和 Prompt 文本。创建结果不明时暂停重建，需核对已有会话。
 
 ## 文件与规则
 
-任务保存在 `<Home>/<tasksDirectory>/<标题>--<短ID>.md`，文件名以标题开头、用短 ID 区分同名任务；任务身份以 frontmatter 的完整 `id` 为准；可选的 `summary` 是一句话摘要，`taskmd list` 会返回它，用于快速筛选相关任务。Inbox 固定为 `<tasksDirectory>/inbox/`：合法任务文档会被移动到任务目录并创建、绑定一个 Session，随后发送任务快照；移动即一次性领取，重启不会重复创建。
+任务保存在 `<Home>/<tasksDirectory>/<标题>--<短ID>.md`，文件名以标题开头、用短 ID 区分同名任务；任务身份以 frontmatter 的完整 `id` 为准；可选的 `summary` 是一句话摘要，`taskmd list` 会返回它，用于快速筛选相关任务。Inbox 固定为 `<tasksDirectory>/inbox/`：合法任务文档会被移动到任务目录并创建、绑定一个 Session，随后发送任务入口 Prompt；移动即一次性领取，重启不会重复创建。
 
 Inbox 最小格式只需要 `taskmd` 和 `title`，文件名建议与标题相同，其余字段自动填充：
 
