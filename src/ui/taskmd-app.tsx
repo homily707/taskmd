@@ -93,8 +93,10 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
   const [confirming, setConfirming] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const [launcherOpen, setLauncherOpen] = useState(false);
+  const launcherRef = useRef<HTMLDetailsElement>(null);
   const id = useId();
   useEffect(() => { heading.current?.focus(); }, []);
+  useEffect(() => { if (launcherOpen) launcherRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [launcherOpen]);
   useEffect(() => { setConfirming(false); }, [record.task.id]);
   const subtree = descendants(state.tasks.map(item => item.task), record.task.id).size;
   const run = (action: () => Promise<unknown>) => {
@@ -131,7 +133,7 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
       </div>
     </header>
     {error && <p role="alert" className="taskmd-error">{error}</p>}
-    {sessions && <TaskSessionLauncher id={`${id}-launcher`} externalTrigger expanded={launcherOpen} onClose={() => setLauncherOpen(false)}
+    {sessions && <TaskSessionLauncher id={`${id}-launcher`} externalTrigger expanded={launcherOpen} onClose={() => setLauncherOpen(false)} launcherRef={launcherRef}
       record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} onChanged={() => void onChanged()} />}
     <TaskEditor record={record} port={port} editor={editor} />
     {sessions && <TaskSessions record={record} port={port} sessions={sessions} sessionId={sessionId} />}
