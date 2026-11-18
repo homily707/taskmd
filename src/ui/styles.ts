@@ -432,7 +432,6 @@ export const styles = `
 .taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-properties form label{margin:4px 0 0}
 .taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-properties .taskmd-toolbar{margin:5px 0}
 .taskmd-app .taskmd-launcher.is-external fieldset{border:0;padding:0;margin-top:6px}
-.taskmd-app .taskmd-launcher.is-external fieldset>legend{display:none}
 .taskmd-app .taskmd-launcher.is-external>p.taskmd-muted{margin:0 0 6px;font-size:11px}
 .taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-detail>details:last-child{
   margin:4px 0;padding:4px 0;
