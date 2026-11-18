@@ -92,25 +92,12 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const [launcherOpen, setLauncherOpen] = useState(false);
   const launcherRef = useRef<HTMLDetailsElement>(null);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
-  const [launcherExpanded, setLauncherExpanded] = useState(false);
   const id = useId();
   useEffect(() => { heading.current?.focus(); }, []);
+  useEffect(() => { if (launcherOpen) launcherRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [launcherOpen]);
   useEffect(() => { setConfirming(false); }, [record.task.id]);
-  useEffect(() => () => { if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current); }, []);
-  const cancelLauncherHover = () => {
-    if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current);
-    hoverTimer.current = undefined;
-  };
-  const revealLauncher = () => {
-    cancelLauncherHover();
-    setLauncherExpanded(true);
-  };
-  const scheduleLauncher = () => {
-    cancelLauncherHover();
-    hoverTimer.current = setTimeout(revealLauncher, 400);
-  };
   const subtree = descendants(state.tasks.map(item => item.task), record.task.id).size;
   const run = (action: () => Promise<unknown>) => {
     if (busy) return; setBusy(true); setError('');
@@ -121,16 +108,10 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
       <div className="taskmd-detail-heading">
         <span className="taskmd-eyebrow">{record.task.archived ? 'ARCHIVED TASK' : 'TASK DETAIL'}</span>
         <h2 className="taskmd-detail-title" ref={heading} tabIndex={-1}>{record.task.title}</h2>
-        <div className="taskmd-detail-meta">
-          <span className={`taskmd-status-tag is-${record.task.status}`}><span className={`taskmd-status-dot is-${record.task.status}`} aria-hidden="true" />{statusLabels[record.task.status]}</span>
-          {record.task.archived && <span className="taskmd-archived-label">已归档</span>}
-        </div>
       </div>
       <div className="taskmd-detail-actions">
-        {sessions && <button type="button" className="taskmd-primary-action" onMouseEnter={scheduleLauncher} onMouseLeave={cancelLauncherHover} onFocus={revealLauncher} onClick={() => {
-          revealLauncher();
-          launcherRef.current?.scrollIntoView?.({ block: 'nearest' });
-        }}>＋ 新建 Session</button>}
+        {sessions && <button type="button" className="taskmd-primary-action" aria-expanded={launcherOpen} aria-controls={`${id}-launcher`}
+          onClick={() => setLauncherOpen(open => !open)}>＋ 新建 Session</button>}
         <label htmlFor={`${id}-actions`} className="taskmd-visually-hidden">任务操作</label>
         <select id={`${id}-actions`} aria-label="任务操作" value="" disabled={busy} onChange={event => {
           const value = event.target.value;
@@ -152,7 +133,8 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
       </div>
     </header>
     {error && <p role="alert" className="taskmd-error">{error}</p>}
-    {sessions && <TaskSessionLauncher record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} launcherRef={launcherRef} expanded={launcherExpanded} onExpandedChange={setLauncherExpanded} onChanged={() => void onChanged()} />}
+    {sessions && <TaskSessionLauncher id={`${id}-launcher`} externalTrigger expanded={launcherOpen} onClose={() => setLauncherOpen(false)} launcherRef={launcherRef}
+      record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} onChanged={() => void onChanged()} />}
     <TaskEditor record={record} port={port} editor={editor} />
     {sessions && <TaskSessions record={record} port={port} sessions={sessions} sessionId={sessionId} />}
     <TaskProperties record={record} state={state} port={port} onChanged={onChanged} />
