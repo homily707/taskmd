@@ -8,6 +8,19 @@ import { createDocument, hash, isManaged, MAX_DOCUMENT, parseInboxDocument, pars
 const defaults: HomeSettings = { homeDirectory: '', homeWorkspaceId: null, tasksDirectory: 'tasks' };
 /** Only files placed in this directory below the task directory trigger import and Session launch. */
 export const INBOX_DIRECTORY = 'inbox';
+/** Default headings for new tasks created through the UI or Agent tool. */
+const DEFAULT_TASK_BODY = [
+  '## 目标',
+  '',
+  '## 工作内容',
+  '',
+  '## 进展',
+  '',
+  '## 工作笔记',
+  '',
+  '## 工作材料',
+  '',
+].join('\n');
 const MAX_LOCAL = 4 * 1024 * 1024;
 const MAX_ATTACHMENT = 8 * 1024 * 1024;
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -443,7 +456,7 @@ export class TaskFiles {
       const siblings = state.tasks.filter(record => record.task.parent === parent);
       const order = Math.max(-1, ...siblings.map(record => record.task.order)) + 1;
       const task: Task = { id: randomUUID(), title: input.title, ...(input.summary !== undefined ? { summary: input.summary } : {}),
-        parent, status: 'todo', order, archived: false, body: input.body ?? '' };
+        parent, status: 'todo', order, archived: false, body: input.body === undefined || input.body === '' ? DEFAULT_TASK_BODY : input.body };
       const content = createDocument(task);
       this.validateParent(task, state);
       await this.assertDirectory();

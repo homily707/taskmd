@@ -390,3 +390,18 @@ test('external inbox additions notify subscribers', async t => {
   await notification;
   assert.equal((await files.inboxEntries()).entries.length, 1);
 });
+
+
+test('new tasks get section headings unless a body is supplied', async t => {
+  const { files } = await fixture(t);
+  const generated = await files.create({ title: 'Templated task' });
+  assert.equal(generated.task.body, [
+    '## 目标', '', '## 工作内容', '', '## 进展', '',
+    '## 工作笔记', '', '## 工作材料', '',
+  ].join('\n'));
+  assert.equal((await files.read(generated.task.id)).task.body, generated.task.body);
+  const blank = await files.create({ title: 'Blank body', body: '' });
+  assert.equal(blank.task.body, generated.task.body);
+  const custom = await files.create({ title: 'Custom', body: 'Keep my own notes.' });
+  assert.equal(custom.task.body, 'Keep my own notes.');
+});

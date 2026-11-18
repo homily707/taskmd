@@ -1,17 +1,23 @@
 import type { TaskRecord } from '../types.js';
 
-/** The exact saved body frozen by the Session launcher, shared by UI and Host auto-launch. */
+/** Task identity and launch guidance only; the Agent reads the latest task on start. */
 export function initialPrompt(record: Pick<TaskRecord, 'task' | 'path'>): string {
   return [
-    `任务：${record.task.title}`, `任务 ID：${record.task.id}`, `Markdown：${record.path}`,
-    '', '以下是已保存的任务正文：', '', record.task.body || '（暂无正文。）',
-    '', '请根据任务正文开展工作。',
-    '', '这份任务文件同时是工作记录。接手本任务的会话和以后做相似任务的会话都看不到本次对话，只能靠它了解情况。',
-    '- 开工时：在 frontmatter 的 `summary` 写一句话摘要，说明要做什么、涉及哪个仓库或模块，后续有实质变化时同步更新；别人用 `taskmd list` 靠它找到相关任务。',
-    '- 开工前：正文链接了前置或相似任务时先读它们；没有链接时，先用 `taskmd list` 看各任务的一句话摘要（含已归档），挑出可能相关的再读它的“进展”小节，摘要不够判断时再按关键词搜文件。旧记录只反映当时的情况，与当前代码不符时以代码为准。',
-    '- 执行中：在正文末尾维护“## 进展”小节，覆盖式写明当前状态、已做的决定、放弃的方案及原因、关键文件与验证方法、踩过的坑和下一步，并注明日期和相关 commit。',
-    '- 不要等到任务结束才写，会话可能随时中断。一个结论定下来、费了功夫才弄清一件事、完成一个阶段、要开始很长或有风险的操作、用户要求交接时，当场更新变化的部分。结论未定或只是等用户回复时不用更新。',
-    '- 目标、要求和验收标准由用户维护，认为需要调整时先向用户提出。',
-    '- 正文和 `summary` 直接编辑上面的 Markdown 文件并保留 frontmatter；文件无法访问时改用 taskmd 工具。标题、状态、层级和会话关联用 taskmd 工具修改。任务状态与会话状态独立，用户没有要求时不要改。',
+    `任务：${record.task.title}`, `任务 ID：${record.task.id}`, `任务文件：${record.path}`,
+    '',
+    '先调用 taskmd 工具（action=read，taskId 为上述任务 ID）读取最新任务内容，再根据任务要求开展工作。',
+    '',
+    '开始前：',
+    '- 理解任务目标、要求和验收标准；先阅读已有的进展、工作笔记和工作材料，避免重复调查。',
+    '- 优先查阅任务明确引用的前置或相关任务；确需复用历史经验时，再通过 taskmd 工具（action=list）查找。',
+    '',
+    '执行中：',
+    '- “## 进展”：覆盖式更新当前状态、待解决问题和下一步；保持简洁，不写流水账。',
+    '- “## 工作笔记”：按主题整理重要发现、方案取舍和踩坑经验，合并重复或失效的结论。',
+    '- “## 工作材料”：保存难以重新获取的查询结果、指标、日志和实验数据等；记录必要的来源、时间范围和引用位置。大量原始材料放独立文件，正文只保留索引。',
+    '- 有实质结论或阶段变化时及时更新；章节按需维护，不要求填满。',
+    '- summary 用一句话概括任务目的及必要的当前阶段，缺失或阶段明显变化时更新即可。',
+    '- 用户维护目标、要求和验收标准；未经要求不要修改任务状态。',
+    '- 编辑任务时保留 frontmatter；任务文件不可访问时，使用 taskmd 工具（action=read/update），并按 expectedVersion 处理冲突。',
   ].join('\n');
 }
