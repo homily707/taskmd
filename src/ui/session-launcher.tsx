@@ -106,7 +106,7 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
   return <details ref={launcherRef} id={id} open={externalTrigger ? expanded : undefined} className={externalTrigger ? 'taskmd-launcher is-external' : 'taskmd-launcher'}><summary><span className="taskmd-section-icon" aria-hidden="true">＋</span> 新建 Session <span className="taskmd-section-hint">启动 Agent</span></summary>
     {externalTrigger && <div className="taskmd-launcher-head"><strong>会话选项</strong><button type="button" onClick={onClose}>收起</button></div>}
     <p className="taskmd-muted">保存正文后发送任务快照。默认在 Home 创建会话，也可选择其他仓库。</p>
-    <fieldset disabled={busy || !!current}><legend>会话选项</legend>
+    <fieldset disabled={busy || !!current}><legend className={externalTrigger ? 'taskmd-visually-hidden' : undefined}>会话选项</legend>
       <label htmlFor={`${ids}-repo`}>Session 仓库</label><select id={`${ids}-repo`} aria-label="Session 仓库" value={chosen} onChange={event => setChosen(event.target.value)}>
         <option value="">选择 DSH 仓库</option>{workspaces.items.map(item => <option key={item.workspaceId} value={item.workspaceId}>{item.workspaceId === settings.homeWorkspaceId ? 'Home · ' : ''}{item.title} · {item.path}</option>)}
       </select>
