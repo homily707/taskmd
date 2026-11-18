@@ -102,6 +102,6 @@ Host 的 Cordis、DSH 协议及工具包由宿主提供；Client 的 React 和 c
 
 ## 安装与更新
 
-推荐从 DSH 插件管理器使用 npm Registry 包名 `taskmd` 安装，以使用 DSH 内置的版本检查和更新功能。GitHub 直装仍可使用，但不会自动切换成 Registry 更新。
+推荐从 DSH 插件管理器使用 npm Registry 包名 `@homily/taskmd` 安装，以使用 DSH 内置的版本检查和更新功能。GitHub 直装仍可使用，但不会自动切换成 Registry 更新。
 
 维护者可以通过 GitHub 版本 tag 发布 npm 新版本；首次发布、npm Trusted Publishing 设置和更新步骤见 [发布说明](docs/publishing.md)。在 npm 首次发布完成前，npm 安装渠道尚不可用。
