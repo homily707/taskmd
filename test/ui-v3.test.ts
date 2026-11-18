@@ -518,3 +518,59 @@ test('right detail exposes session launch and compact editor actions', async t =
   await click(view, '保存正文');
   assert.equal(f.state().tasks[0]!.task.body, 'updated body');
 });
+
+test('unbound session promotes the binding form without changing the bound layout', async t => {
+  const f = fixture();
+  const unbound = await mount(t, createElement(TaskmdSidebar, { port: f.port, sessions: sessions(), sessionId: 'none', onOpenTask() {} }));
+  const form = unbound.root.findAllByType('details').find(node => String(node.props.className).includes('taskmd-bind-panel'))!;
+  assert.match(form.props.className, /is-unbound/);
+  assert.equal(form.props.open, true);
+  const bound = await mount(t, createElement(TaskmdSidebar, {
+    port: f.port,
+    sessions: sessions({ list: async () => [{ taskId: 'a', sessionId: 'bound', createdAt: '' }] }),
+    sessionId: 'bound', onOpenTask() {},
+  }));
+  const boundForm = bound.root.findAllByType('details').find(node => String(node.props.className).includes('taskmd-bind-panel'))!;
+  assert.doesNotMatch(boundForm.props.className, /is-unbound/);
+});
+
+test('hovering new Session reveals model options after a short delay', async t => {
+  const f = fixture();
+  const capability = sessions({
+    catalog: async () => ({ default: { provider: 'p', model: 'm' }, routableProviders: ['p'],
+      groups: [{ id: 'p', name: 'Provider', models: [{ id: 'm', name: 'Model' }] }], failures: [] }),
+    selectModel: async () => {},
+  });
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port: f.port, sessions: capability, taskId: 'a' }));
+  const trigger = view.root.findAllByType('button').find(node => text(node) === '＋ 新建 Session')!;
+  const launcher = () => view.root.findByProps({ className: 'taskmd-launcher' });
+  assert.equal(launcher().props.open, false);
+  await act(async () => { trigger.props.onMouseEnter(); });
+  assert.equal(launcher().props.open, false);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 430)); });
+  assert.equal(launcher().props.open, true);
+  assert.ok(launcher().findAllByType('select').some(node => String(node.props.id).endsWith('-model')));
+  assert.match(text(launcher()), /Model/);
+});
+
+test('recent Session rows delegate right-click and keyboard menus to DSH', async t => {
+  const f = fixture();
+  const entries = new Map([['s1', { sessionId: 's1', title: 'Recent session', running: false, updatedAt: 123 }]]);
+  const menu: unknown[] = [];
+  const capability = sessions({ statuses: () => ({ get: () => entries, subscribe: () => () => {} }) });
+  const view = await mount(t, createElement(TaskmdLeftSidebar, {
+    port: f.port, sessions: capability, wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {},
+    onSessionMenu: (id, title, point) => { menu.push({ id, title, point }); return true; },
+  }));
+  const row = view.root.findByProps({ className: 'taskmd-active-session' });
+  let prevented = false;
+  await act(async () => row.props.onContextMenu({ clientX: 18, clientY: 27, preventDefault() { prevented = true; } }));
+  assert.equal(prevented, true);
+  assert.deepEqual(menu[0], { id: 's1', title: 'Recent session', point: { x: 18, y: 27 } });
+  await act(async () => row.props.onKeyDown({
+    key: 'F10', shiftKey: true,
+    currentTarget: { getBoundingClientRect: () => ({ left: 3, bottom: 60 }) },
+    preventDefault() { prevented = true; },
+  }));
+  assert.deepEqual(menu[1], { id: 's1', title: 'Recent session', point: { x: 19, y: 60 } });
+});

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { TaskRecord, TaskSessionBinding } from '../types.js';
 import type { SessionCapability, SessionStatus, TaskPort } from './port.js';
@@ -21,6 +21,18 @@ function sessionBadge(statuses: SessionStatus[], count: number): { text: string;
   return { text: String(count), level: 'idle' };
 }
 
+type SessionMenuOpener = (sessionId: string, title: string, point: { x: number; y: number }) => boolean;
+
+/** Reuse the DSH menu; leave browser context menus alone when the service is missing. */
+function sessionContextMenu(event: ReactMouseEvent<HTMLElement>, id: string, title: string, open?: SessionMenuOpener) {
+  if (open?.(id, title, { x: event.clientX, y: event.clientY })) event.preventDefault();
+}
+function sessionContextKey(event: ReactKeyboardEvent<HTMLElement>, id: string, title: string, open?: SessionMenuOpener) {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (open?.(id, title, { x: rect.left + 16, y: rect.bottom })) event.preventDefault();
+}
+
 interface SessionPickerState {
   taskId: string;
   anchor: HTMLElement;
@@ -33,10 +45,10 @@ interface SessionPickerState {
  * the small Session badge opens a floating list to the right of the column.
  * Agent state is display-only; it never writes task status or completion.
  */
-export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenTask, onActivateSession, showSessions, activeSessionId }: {
+export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenTask, onActivateSession, showSessions, activeSessionId, onSessionMenu }: {
   port: TaskPort; sessions: SessionCapability; wide: boolean; expandSidebar(): void;
   onOpenTask(id: string): void; onActivateSession?(taskId: string, sessionId: string): Promise<void>; showSessions(): void;
-  activeSessionId?: string;
+  activeSessionId?: string; onSessionMenu?: SessionMenuOpener;
 }) {
   const { state, error, refresh } = useTasks(port);
   const agent = useAgentView(sessions, port);
@@ -155,7 +167,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
         <button type="button" className="taskmd-text-button" onClick={showSessions}>会话</button>
       </div>
     </header>
-    <ActiveSessions sessions={sessions} />
+    <ActiveSessions sessions={sessions} onSessionMenu={onSessionMenu} />
     <div className="taskmd-left-search">
       <label className="taskmd-visually-hidden" htmlFor={`${ids}-search`}>搜索任务</label>
       <div className="taskmd-search-box">
@@ -236,7 +248,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
       sessionTitle={(sessionId, status) => sessionLabel(sessions, sessionId, status)}
       onOpen={sessionId => { setPicker(undefined); void activateSession(picker.taskId, sessionId); }}
       onEnter={() => { if (hoverClose.current !== undefined) { window.clearTimeout(hoverClose.current); hoverClose.current = undefined; } }}
-      onLeave={scheduleClose} onClose={closePicker} />, document.body)}
+      onLeave={scheduleClose} onClose={closePicker} onSessionMenu={onSessionMenu} />, document.body)}
   </aside>;
 }
 
@@ -248,7 +260,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
  * summarize every visible Session that waits on the user, runs, or carries an
  * unread result.
  */
-function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
+function ActiveSessions({ sessions, onSessionMenu }: { sessions: SessionCapability; onSessionMenu?: SessionMenuOpener }) {
   const statusSource = sessions.statuses?.();
   const [collapsed, setCollapsed] = useStored('leftActiveCollapsed', false,
     (value): value is boolean => typeof value === 'boolean');
@@ -294,10 +306,13 @@ function ActiveSessions({ sessions }: { sessions: SessionCapability }) {
         const meta = status.pending ? '等你处理' : status.fresh ? '有新结果'
           : status.running ? (status.runningSubagents ? `运行 · ${status.runningSubagents} 子代理` : '运行中')
           : relativeActivity(status, Date.now());
+        const name = sessions.title?.(status.sessionId) || status.title || status.sessionId;
         return <button type="button" key={status.sessionId} className="taskmd-active-session"
-          title={status.sessionId} onClick={() => void open(status.sessionId)}>
+          title={status.sessionId} onClick={() => void open(status.sessionId)}
+          onContextMenu={event => sessionContextMenu(event, status.sessionId, name, onSessionMenu)}
+          onKeyDown={event => sessionContextKey(event, status.sessionId, name, onSessionMenu)}>
           <span className={`taskmd-session-dot is-${level}`} aria-hidden="true" />
-          <span className="taskmd-active-session-title">{sessions.title?.(status.sessionId) || status.title || status.sessionId}</span>
+          <span className="taskmd-active-session-title">{name}</span>
           <span className={`taskmd-active-session-meta taskmd-status-text is-${level}`}>{meta}</span>
         </button>;
       })}
@@ -318,11 +333,12 @@ function popoverPosition(anchor: HTMLElement) {
 }
 
 /** Portalled so the DSH sidebar's overflow cannot clip it. */
-function SessionPopover({ taskTitle, anchor, pinned, bindings, statuses, sessionTitle, onOpen, onClose, onEnter, onLeave }: {
+function SessionPopover({ taskTitle, anchor, pinned, bindings, statuses, sessionTitle, onOpen, onClose, onEnter, onLeave, onSessionMenu }: {
   taskTitle: string; anchor: HTMLElement; pinned: boolean; bindings: TaskSessionBinding[];
   statuses: Map<string, SessionStatus>;
   sessionTitle(sessionId: string, status?: SessionStatus): string;
   onOpen(sessionId: string): void; onClose(restoreFocus?: boolean): void; onEnter(): void; onLeave(): void;
+  onSessionMenu?: SessionMenuOpener;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(() => popoverPosition(anchor));
@@ -386,9 +402,11 @@ function SessionPopover({ taskTitle, anchor, pinned, bindings, statuses, session
       const level = status ? levelOf(status) : 'idle';
       const archived = !!status?.archived;
       return <button type="button" key={binding.sessionId} data-session-item
-        className="taskmd-session-popover-item" disabled={archived}
+        className="taskmd-session-popover-item" aria-disabled={archived || undefined}
         title={archived ? '该 Session 已归档，请先在 DSH 会话列表中恢复' : binding.sessionId}
-        onClick={() => onOpen(binding.sessionId)}>
+        onContextMenu={event => sessionContextMenu(event, binding.sessionId, sessionTitle(binding.sessionId, status), onSessionMenu)}
+        onKeyDown={event => sessionContextKey(event, binding.sessionId, sessionTitle(binding.sessionId, status), onSessionMenu)}
+        onClick={() => { if (!archived) onOpen(binding.sessionId); }}>
         <span className={`taskmd-session-dot is-${level}`} aria-hidden="true" />
         <span className="taskmd-session-popover-name">{sessionTitle(binding.sessionId, status)}</span>
         <span className={`taskmd-session-popover-meta taskmd-status-text is-${level}`}>{archived ? '已归档' : status ? levelLabels[level] : '读取中…'}</span>

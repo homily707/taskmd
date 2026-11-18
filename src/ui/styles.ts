@@ -447,6 +447,8 @@ export const styles = `
   flex:none;margin:0;padding:9px 16px 12px;border-top:1px solid var(--tm-border);
   background:var(--tm-surface-2);max-height:48%;overflow-y:auto;
 }
+.taskmd-session-sidebar .taskmd-bind-panel.is-unbound{border-top:0;border-bottom:1px solid var(--tm-border)}
+.taskmd-session-sidebar .taskmd-panel-empty{order:1}
 .taskmd-session-sidebar .taskmd-bind-panel>summary{font-weight:600;font-size:11.5px;color:var(--tm-text)}
 .taskmd-session-sidebar .taskmd-bind-form{padding-top:8px;display:flex;flex-direction:column;gap:7px}
 .taskmd-session-sidebar .taskmd-bind-form label{margin:0}

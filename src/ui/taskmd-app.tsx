@@ -93,9 +93,24 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
   const [confirming, setConfirming] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const launcherRef = useRef<HTMLDetailsElement>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [launcherExpanded, setLauncherExpanded] = useState(false);
   const id = useId();
   useEffect(() => { heading.current?.focus(); }, []);
   useEffect(() => { setConfirming(false); }, [record.task.id]);
+  useEffect(() => () => { if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current); }, []);
+  const cancelLauncherHover = () => {
+    if (hoverTimer.current !== undefined) clearTimeout(hoverTimer.current);
+    hoverTimer.current = undefined;
+  };
+  const revealLauncher = () => {
+    cancelLauncherHover();
+    setLauncherExpanded(true);
+  };
+  const scheduleLauncher = () => {
+    cancelLauncherHover();
+    hoverTimer.current = setTimeout(revealLauncher, 400);
+  };
   const subtree = descendants(state.tasks.map(item => item.task), record.task.id).size;
   const run = (action: () => Promise<unknown>) => {
     if (busy) return; setBusy(true); setError('');
@@ -112,8 +127,9 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
         </div>
       </div>
       <div className="taskmd-detail-actions">
-        {sessions && <button type="button" className="taskmd-primary-action" onClick={() => {
-          if (launcherRef.current) { launcherRef.current.open = true; launcherRef.current.scrollIntoView?.({ block: 'nearest' }); }
+        {sessions && <button type="button" className="taskmd-primary-action" onMouseEnter={scheduleLauncher} onMouseLeave={cancelLauncherHover} onFocus={revealLauncher} onClick={() => {
+          revealLauncher();
+          launcherRef.current?.scrollIntoView?.({ block: 'nearest' });
         }}>＋ 新建 Session</button>}
         <label htmlFor={`${id}-actions`} className="taskmd-visually-hidden">任务操作</label>
         <select id={`${id}-actions`} aria-label="任务操作" value="" disabled={busy} onChange={event => {
@@ -136,9 +152,9 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
       </div>
     </header>
     {error && <p role="alert" className="taskmd-error">{error}</p>}
+    {sessions && <TaskSessionLauncher record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} launcherRef={launcherRef} expanded={launcherExpanded} onExpandedChange={setLauncherExpanded} onChanged={() => void onChanged()} />}
     <TaskEditor record={record} port={port} editor={editor} />
-    {sessions && <><TaskSessions record={record} port={port} sessions={sessions} sessionId={sessionId} />
-      <TaskSessionLauncher record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} launcherRef={launcherRef} onChanged={() => void onChanged()} /></>}
+    {sessions && <TaskSessions record={record} port={port} sessions={sessions} sessionId={sessionId} />}
     <TaskProperties record={record} state={state} port={port} onChanged={onChanged} />
     <details><summary>Markdown 文件</summary><p className="taskmd-path">{record.path}</p><p className="taskmd-muted">任务 ID：{record.task.id}</p></details>
   </article>;
@@ -176,7 +192,7 @@ export function TaskmdSidebar({ port, sessions, sessionId, onOpenTask }: { port:
     </nav>}
     {current ? <div className="taskmd-session-task-content"><TaskDetail key={current.task.id} record={current} state={state!} port={port} sessions={sessions} sessionId={sessionId} onChanged={refresh} /></div>
       : <div className="taskmd-panel-empty"><span className="taskmd-empty-mark" aria-hidden="true">⌁</span><strong>还没有关联任务</strong><p>选择一个任务，将它与当前 Session 关联。</p></div>}
-    <details className="taskmd-bind-panel" open={!records.length ? true : undefined}>
+    <details className={`taskmd-bind-panel${!records.length ? ' is-unbound' : ''}`} open={!records.length ? true : undefined}>
       <summary>关联任务到当前 Session</summary>
       <div className="taskmd-bind-form">
         <label>选择任务<select aria-label="关联任务" value={selected && !ids.has(selected) ? selected : ''} onChange={event => setSelected(event.target.value)}>
