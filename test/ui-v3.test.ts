@@ -506,12 +506,21 @@ test('right sidebar displays one selected task with a clear task switcher', asyn
   assert.deepEqual(opened, ['b']);
 });
 
-test('right detail exposes session launch and compact editor actions', async t => {
+test('right detail keeps one status and Session entry, revealing launch options on demand', async t => {
   const f = fixture();
   const view = await mount(t, createElement(TaskmdDetailPanel, { port: f.port, sessions: sessions(), taskId: 'a' }));
-  assert.ok(view.root.findAllByType('button').some(node => text(node) === '＋ 新建 Session'));
+  const launch = view.root.findAllByType('button').filter(node => text(node) === '＋ 新建 Session');
+  assert.equal(launch.length, 1);
+  const options = view.root.findByProps({ className: 'taskmd-launcher is-external' });
+  assert.equal(options.props.open, false);
+  const status = view.root.findByProps({ 'aria-label': '任务操作' });
+  assert.equal(text(status.findAllByType('option')[0]!), '待办');
+  assert.equal(view.root.findAllByProps({ className: 'taskmd-status-tag is-todo' }).length, 0);
+  await click(view, '＋ 新建 Session');
+  assert.equal(options.props.open, true);
+  await click(view, '收起');
+  assert.equal(options.props.open, false);
   assert.ok(view.root.findAllByProps({ className: 'taskmd-editor-tabs' }).length);
-  assert.ok(view.root.findAllByProps({ className: 'taskmd-status-tag is-todo' }).length);
   await click(view, '编辑正文');
   await body(view, 'updated body');
   assert.ok(view.root.findAllByProps({ className: 'taskmd-save-indicator is-dirty' }).length);
