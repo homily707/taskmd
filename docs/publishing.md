@@ -5,11 +5,11 @@ taskmd 保留 GitHub 源码和 Git 直装方式，同时以 npm Registry 作为�
 
 ## 首次发布（只做一次）
 
-1. 确认 npm 包名 `taskmd` 可以使用，或确认自己有该包的发布权限：
+1. 确认 npm 包名 `@homily/taskmd` 可以使用，或确认自己有该包的发布权限：
    `npm view taskmd version --registry=https://registry.npmjs.org`。如果被其他维护者占用，不要尝试发布；改名会同时涉及 DSH 插件身份及 Client bundle id，需要另行处理。
 2. 合并 `.github/workflows/publish.yml` 后，从 main 检出准备发布的版本。使用 Node.js 24，运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm build` 和 `npm pack --dry-run`。
-3. 登录你自己的 npm 账号：`npm login --registry=https://registry.npmjs.org`。如果 npm 上还没有该包，先手动执行一次 `npm publish --access public --registry=https://registry.npmjs.org`，创建 `taskmd` 包。仅发布尚未发布过的版本；包名和版本已存在时不得覆盖。
-4. 在 npm 网站的 **taskmd → Settings → Trusted publishing** 添加 GitHub Actions publisher：
+3. 登录你自己的 npm 账号：`npm login --registry=https://registry.npmjs.org`。如果 npm 上还没有该包，先手动执行一次 `npm publish --access public --registry=https://registry.npmjs.org`，创建 `@homily/taskmd` 包。仅发布尚未发布过的版本；包名和版本已存在时不得覆盖。
+4. 在 npm 网站的 **@homily/taskmd → Settings → Trusted publishing** 添加 GitHub Actions publisher：
    - **Organization or user**: `homily707`
    - **Repository**: `taskmd`
    - **Workflow filename**: `publish.yml`
@@ -36,7 +36,7 @@ taskmd 保留 GitHub 源码和 Git 直装方式，同时以 npm Registry 作为�
 
 ## DSH 用户如何更新
 
-新用户在 DSH **插件管理器**按 Registry 包名 `taskmd` 安装。此后在插件详情的 **版本 / 检查更新** 中发现和安装新版本。检查需要用户主动触发，并非后台自动更新。
+新用户在 DSH **插件管理器**按 Registry 包名 `@homily/taskmd` 安装。此后在插件详情的 **版本 / 检查更新** 中发现和安装新版本。检查需要用户主动触发，并非后台自动更新。
 
 从 `github:homily707/taskmd` 安装的旧用户仍属 Git 安装：需按 DSH 插件管理器流程切换到 Registry 安装，不能期待 DSH 自动改变安装来源。迁移前应备份当前 DSH profile 配置及 `data/taskmd/` 中的本机会话绑定信息；Home 中的 Markdown 任务目录与插件包分离。迁移后检查 Home 与 Session 绑定是否正常。
 
