@@ -197,13 +197,13 @@ export const styles = `
 .taskmd-body{margin:16px 0 4px}
 .taskmd-body>.taskmd-toolbar{margin:0 0 10px}
 .taskmd-body textarea{width:100%;min-height:360px;font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;tab-size:2;resize:vertical}
-/* Right-sidebar detail surface: the Markdown editor fills the pane's remaining height and full width. */
-.taskmd-detail-panel{display:flex;flex-direction:column;overflow:auto}
-.taskmd-detail-panel .taskmd-detail{flex:1;display:flex;flex-direction:column;min-height:0;max-width:none;margin:0}
-.taskmd-detail-panel .taskmd-body{flex:1;display:flex;flex-direction:column;min-height:220px;margin:10px 0 4px}
-.taskmd-detail-panel .taskmd-body>label{flex:none}
-.taskmd-detail-panel .taskmd-body textarea{flex:1;min-height:0;resize:none}
-.taskmd-detail-panel .taskmd-body>.taskmd-md{flex:1;min-height:0;overflow:auto;margin:0}
+/* Right detail scrolls as one document. Neither Markdown nor the editor forces
+   the Session sections below it away from short task bodies. */
+.taskmd-detail-panel{display:block;overflow:auto}
+.taskmd-detail-panel .taskmd-detail{display:block;min-height:0;max-width:none;margin:0}
+.taskmd-detail-panel .taskmd-body{display:block;min-height:0;margin:0}
+.taskmd-detail-panel .taskmd-body textarea{min-height:240px;resize:vertical}
+.taskmd-detail-panel .taskmd-body>.taskmd-md{min-height:0;overflow:visible;margin:0}
 .taskmd-prompt{border:0;padding:2px 0}
 .taskmd-prompt textarea{width:100%;min-height:140px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}
 .taskmd-conflict{border:1px solid var(--tm-warn);background:color-mix(in srgb,var(--tm-warn) 7%,transparent);border-radius:8px;padding:10px 12px;margin:10px 0}
@@ -407,6 +407,36 @@ export const styles = `
 .taskmd-app .taskmd-launcher-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:12px}
 .taskmd-app .taskmd-launcher-head button{min-height:26px;padding:3px 8px;font-size:11px}
 .taskmd-app .taskmd-detail>details:last-child{margin:7px 0;padding:3px 2px}
+/* Compact right-sidebar sections: inline groups instead of nested cards.
+   Keep the editable launcher as a distinct surface only while expanded. */
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-md{
+  min-height:0;line-height:1.7;margin:2px 0 5px;
+}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-md>:last-child{margin-bottom:0}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) :is(.taskmd-sessions,.taskmd-properties){
+  margin:6px 0 0;padding:7px 0 0;border:0;border-top:1px solid var(--tm-border);
+  border-radius:0;background:transparent;
+}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-section-heading{margin-bottom:3px}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-sessions .taskmd-session-row{
+  min-height:28px;padding:1px 4px;gap:6px;border:0;border-radius:6px;background:transparent;
+}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-session-row:hover{background:var(--tm-hover)}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-sessions .taskmd-session-connect{
+  margin-top:4px;padding:3px 0 0;
+}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-session-connect>summary{min-height:24px}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-sessions-empty{margin:2px 0 4px}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-properties>summary{min-height:26px}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-properties form{margin-top:5px;gap:3px}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-properties form label{margin:4px 0 0}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-properties .taskmd-toolbar{margin:5px 0}
+.taskmd-app .taskmd-launcher.is-external fieldset{border:0;padding:0;margin-top:6px}
+.taskmd-app .taskmd-launcher.is-external fieldset>legend{display:none}
+.taskmd-app .taskmd-launcher.is-external>p.taskmd-muted{margin:0 0 6px;font-size:11px}
+.taskmd-app:is(.taskmd-detail-panel,.taskmd-session-sidebar) .taskmd-detail>details:last-child{
+  margin:4px 0;padding:4px 0;
+}
 .taskmd-app .taskmd-detail>details:last-child>summary{font-size:10.5px}
 .taskmd-app.taskmd-detail-panel{padding:10px 12px 14px;min-width:0;scrollbar-gutter:stable}
 .taskmd-detail-panel .taskmd-detail{max-width:none}
@@ -414,7 +444,7 @@ export const styles = `
   flex:0 0 auto;flex-direction:column;align-items:stretch;justify-content:flex-start;align-content:flex-start;flex-wrap:nowrap;
   position:sticky;top:-10px;z-index:2;background:var(--tm-surface);padding-top:7px;
 }
-.taskmd-detail-panel .taskmd-body{margin:0;min-height:190px}
+.taskmd-detail-panel .taskmd-body{margin:0}
 .taskmd-detail-panel .taskmd-body>.taskmd-md{max-width:none}
 .taskmd-app.taskmd-session-sidebar{
   display:flex;flex-direction:column;gap:0;min-height:0;height:100%;overflow:hidden;
