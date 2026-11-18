@@ -54,7 +54,8 @@ test('inbox launch creates, binds, and sends exactly one task snapshot per file'
   assert.equal(calls.prompts.length, 1);
   const prompt = calls.prompts[0] as { text?: string; content?: { text: string }[] };
   assert.match(prompt.content?.[0]?.text ?? '', /Auto task/);
-  assert.match(prompt.content?.[0]?.text ?? '', /Implement the thing/);
+  assert.match(prompt.content?.[0]?.text ?? '', /action=read/);
+  assert.doesNotMatch(prompt.content?.[0]?.text ?? '', /Implement the thing/);
 
   await launcher.pump();
   assert.equal(calls.created.length, 1);
