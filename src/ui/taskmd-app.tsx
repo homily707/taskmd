@@ -92,7 +92,7 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  const launcherRef = useRef<HTMLDetailsElement>(null);
+  const [launcherOpen, setLauncherOpen] = useState(false);
   const id = useId();
   useEffect(() => { heading.current?.focus(); }, []);
   useEffect(() => { setConfirming(false); }, [record.task.id]);
@@ -106,15 +106,10 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
       <div className="taskmd-detail-heading">
         <span className="taskmd-eyebrow">{record.task.archived ? 'ARCHIVED TASK' : 'TASK DETAIL'}</span>
         <h2 className="taskmd-detail-title" ref={heading} tabIndex={-1}>{record.task.title}</h2>
-        <div className="taskmd-detail-meta">
-          <span className={`taskmd-status-tag is-${record.task.status}`}><span className={`taskmd-status-dot is-${record.task.status}`} aria-hidden="true" />{statusLabels[record.task.status]}</span>
-          {record.task.archived && <span className="taskmd-archived-label">已归档</span>}
-        </div>
       </div>
       <div className="taskmd-detail-actions">
-        {sessions && <button type="button" className="taskmd-primary-action" onClick={() => {
-          if (launcherRef.current) { launcherRef.current.open = true; launcherRef.current.scrollIntoView?.({ block: 'nearest' }); }
-        }}>＋ 新建 Session</button>}
+        {sessions && <button type="button" className="taskmd-primary-action" aria-expanded={launcherOpen} aria-controls={`${id}-launcher`}
+          onClick={() => setLauncherOpen(open => !open)}>＋ 新建 Session</button>}
         <label htmlFor={`${id}-actions`} className="taskmd-visually-hidden">任务操作</label>
         <select id={`${id}-actions`} aria-label="任务操作" value="" disabled={busy} onChange={event => {
           const value = event.target.value;
@@ -136,9 +131,10 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
       </div>
     </header>
     {error && <p role="alert" className="taskmd-error">{error}</p>}
+    {sessions && <TaskSessionLauncher id={`${id}-launcher`} externalTrigger expanded={launcherOpen} onClose={() => setLauncherOpen(false)}
+      record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} onChanged={() => void onChanged()} />}
     <TaskEditor record={record} port={port} editor={editor} />
-    {sessions && <><TaskSessions record={record} port={port} sessions={sessions} sessionId={sessionId} />
-      <TaskSessionLauncher record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} launcherRef={launcherRef} onChanged={() => void onChanged()} /></>}
+    {sessions && <TaskSessions record={record} port={port} sessions={sessions} sessionId={sessionId} />}
     <TaskProperties record={record} state={state} port={port} onChanged={onChanged} />
     <details><summary>Markdown 文件</summary><p className="taskmd-path">{record.path}</p><p className="taskmd-muted">任务 ID：{record.task.id}</p></details>
   </article>;
