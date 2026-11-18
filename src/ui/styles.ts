@@ -443,6 +443,7 @@ export const styles = `
   flex:0 0 auto;flex-direction:column;align-items:stretch;justify-content:flex-start;align-content:flex-start;flex-wrap:nowrap;
   position:sticky;top:-10px;z-index:2;background:var(--tm-surface);padding-top:7px;
 }
+.taskmd-detail-panel .taskmd-detail-heading,.taskmd-session-sidebar .taskmd-detail-heading{flex:0 0 auto}
 .taskmd-detail-panel .taskmd-body{margin:0}
 .taskmd-detail-panel .taskmd-body>.taskmd-md{max-width:none}
 .taskmd-app.taskmd-session-sidebar{
