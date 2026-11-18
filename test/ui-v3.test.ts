@@ -460,10 +460,10 @@ test('review mode previews the scoped prompt and uses the selected model', async
   assert.equal(review.props.checked, false);
   await act(async () => review.props.onChange({ target: { checked: true } }));
   const prompt = view.root.findByProps({ 'aria-label': '自定义 Prompt' });
-  assert.match(prompt.props.value, /action=read/);
+  assert.doesNotMatch(prompt.props.value, /action=read/);
   assert.doesNotMatch(prompt.props.value, /Only fix login timeout handling/);
   assert.match(prompt.props.value, /只审查，不修改文件/);
-  assert.match(prompt.props.value, /仅选择与本任务有关的变更文件/);
+  assert.match(prompt.props.value, /仅审查与本次改动相关的文件/);
   const model = view.root.findAllByType('select').find(node => node.props.id && String(node.props.id).endsWith('-model'))!;
   await act(async () => model.props.onChange({ target: { value: JSON.stringify(['p', 'reviewer']) } }));
   await click(view, '保存并启动 Session');
