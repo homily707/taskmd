@@ -33,7 +33,8 @@ test('official New Session binding inserts saved task prompt without sending or 
   assert.equal(status, 'inserted');
   assert.deepEqual(f.bound, [['task-1', 'native-session']]);
   assert.match(f.edits[0]!, /任务 ID：task-1/);
-  assert.match(f.edits[0]!, /action=read/);
+  assert.match(f.edits[0]!, /任务文件：/);
+  assert.doesNotMatch(f.edits[0]!, /action=read/);
   assert.doesNotMatch(f.edits[0]!, /保存进展/);
   assert.deepEqual(f.calls, ['capture', 'list', 'read', 'bind', 'insert', 'persist']);
 });

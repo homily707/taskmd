@@ -3,23 +3,24 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 import type {} from '@deepseek-ai/dsh-agent';
 import type { TaskmdRemote } from './remote.js';
 
-/** The same operations as the UI; no CLI or second task protocol. */
+/**
+ * Agent-facing surface. The Agent reads and edits task Markdown with file tools,
+ * so `list`, `read` and `update` are intentionally not exposed here; their
+ * implementation still lives in TaskFiles and the UI remotes, so re-enabling
+ * only needs the enum entries and the matching `execute` cases back.
+ */
 export function taskTool(api: Omit<TaskmdRemote, 'watch'>) {
   return defineTool({
     name: 'taskmd',
-    description: 'Organize Home tasks and their DSH conversation links. Create tasks through this tool; then read or edit the returned Markdown path normally. Task status is manual and independent of Agent activity. list returns id, title, summary, status and path for every task, which is the cheapest way to find related tasks; read returns the full task and version.',
+    description: 'Organize Home tasks and their DSH conversation links. Create tasks with this tool, then read and edit the returned Markdown file directly with file tools; do not read or update task content through this tool. It handles create, delete, configure, attachment and Session binding operations. Task status is manual and independent of Agent activity.',
     parameters: {
-      action: { type: 'string', required: true, enum: ['list', 'read', 'create', 'update', 'delete', 'configure', 'bindings', 'bind', 'unbind', 'attachment'] },
-      taskId: { type: 'string', description: 'Task ID for read, update, delete, bind, unbind or attachment.' },
+      action: { type: 'string', required: true, enum: ['create', 'delete', 'configure', 'bindings', 'bind', 'unbind', 'attachment'] },
+      taskId: { type: 'string', description: 'Task ID for delete, bind, unbind or attachment.' },
       title: { type: 'string', description: 'Title of a new task.' },
       summary: { type: 'string', description: 'One-line digest of a new task, usually written by the Agent when work starts.' },
       body: { type: 'string', description: 'Markdown body of a new task.' },
       parent: { type: 'string', description: 'Optional parent ID when creating a task.' },
-      changes: { type: 'object', additionalProperties: false, description: 'Fields to update; only explicit changes are applied.', properties: {
-        title: { type: 'string' }, summary: { type: 'string' }, body: { type: 'string' }, status: { type: 'string', enum: ['todo', 'in_progress', 'done', 'canceled'] },
-        parent: { oneOf: [{ type: 'string' }, { type: 'null' }] }, order: { type: 'number' }, archived: { type: 'boolean' },
-      } },
-      expectedVersion: { type: 'string', description: 'Version from read, required for update or delete. Reread and merge after a conflict. Delete removes the task and its whole subtree.' },
+      expectedVersion: { type: 'string', description: 'Optional for delete: the version you last read. If omitted, the tool uses the current file content hash.' },
       sessionId: { type: 'string', description: 'DSH Session ID to bind or unbind. Does not create or send a message.' },
       homeDirectory: { type: 'string', description: 'Existing absolute Home path for configure.' },
       homeWorkspaceId: { type: 'string', description: 'DSH Workspace ID of Home for configure.' },
@@ -35,15 +36,13 @@ export function taskTool(api: Omit<TaskmdRemote, 'watch'>) {
       };
       let value: unknown;
       switch (args.action) {
-        case 'list': {
-          const state = await api.state();
-          value = { ...state, tasks: state.tasks.map(({ task, path, version }) => ({ ...task, body: undefined, path, version })) };
+        case 'create': value = await api.create({ title: required(args.title, 'title'), body: args.body, parent: args.parent, summary: args.summary }); break;
+        case 'delete': {
+          const taskId = required(args.taskId, 'taskId');
+          const version = args.expectedVersion ?? (await api.read(taskId)).version;
+          value = { deleted: await api.removeTask(taskId, version) };
           break;
         }
-        case 'read': value = await api.read(required(args.taskId, 'taskId')); break;
-        case 'create': value = await api.create({ title: required(args.title, 'title'), body: args.body, parent: args.parent, summary: args.summary }); break;
-        case 'update': value = await api.update(required(args.taskId, 'taskId'), args.changes ?? {}, required(args.expectedVersion, 'expectedVersion')); break;
-        case 'delete': value = { deleted: await api.removeTask(required(args.taskId, 'taskId'), required(args.expectedVersion, 'expectedVersion')) }; break;
         case 'configure': {
           const state = await api.configure({ homeDirectory: required(args.homeDirectory, 'homeDirectory'), homeWorkspaceId: args.homeWorkspaceId ?? null, tasksDirectory: args.tasksDirectory ?? 'tasks' });
           value = { settings: state.settings, taskCount: state.tasks.length, diagnostics: state.diagnostics };

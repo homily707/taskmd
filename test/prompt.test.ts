@@ -23,18 +23,20 @@ test('launch prompt contains task identity and guidance but not a task body snap
   const prompt = initialPrompt(task);
   assert.match(prompt, /Avoid repeated investigation/);
   assert.match(prompt, /11111111-1111-4111-8111-111111111111/);
-  assert.match(prompt, /action=read/);
+  assert.doesNotMatch(prompt, /action=read/);
+  assert.match(prompt, /任务文件：/);
   assert.match(prompt, /工作笔记/);
   assert.match(prompt, /工作材料/);
   assert.doesNotMatch(prompt, /CONFIDENTIAL_TASK_BODY_NOT_FOR_PROMPT/);
   assert.doesNotMatch(prompt, /AGENTS\.md/);
 });
 
-test('review prompt reviews code changes only without reading or embedding the task body', () => {
+test('review prompt re-examines the task and design from the review template', () => {
   const prompt = reviewPrompt(task);
   assert.doesNotMatch(prompt, /action=read/);
-  assert.match(prompt, /只审查，不修改文件/);
-  assert.match(prompt, /代码改动/);
-  assert.match(prompt, /不要读取、不要参考任务正文/);
+  assert.match(prompt, /独立审查者/);
+  assert.match(prompt, /整体合理性/);
+  assert.match(prompt, /输出要求/);
+  assert.match(prompt, /不直接修改代码或方案/);
   assert.doesNotMatch(prompt, /CONFIDENTIAL_TASK_BODY_NOT_FOR_PROMPT/);
 });

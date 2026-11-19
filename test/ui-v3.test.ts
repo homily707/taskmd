@@ -231,7 +231,7 @@ test('launcher defaults to Home, offers all repos, and sends saved snapshot', as
   const repo = view.root.findByProps({ 'aria-label': 'Session 仓库' });
   assert.equal(repo.props.value, 'home'); assert.deepEqual(repo.findAllByType('option').map(node => node.props.value), ['', 'home', 'other']);
   await click(view, '编辑正文'); await body(view, 'fresh saved body'); await click(view, '保存并启动 Session');
-  assert.deepEqual(events, ['save', 'create', 'send', 'open']); assert.deepEqual(createdOptions, { workspaceId: 'home' }); assert.match(sentText, /action=read/); assert.doesNotMatch(sentText, /fresh saved body/);
+  assert.deepEqual(events, ['save', 'create', 'send', 'open']); assert.deepEqual(createdOptions, { workspaceId: 'home' }); assert.match(sentText, /任务文件：/); assert.doesNotMatch(sentText, /action=read/); assert.doesNotMatch(sentText, /fresh saved body/);
 });
 test('bind and send retries reuse created Session and exact request/text', async () => {
   const calls: string[] = []; const deliveries: string[] = []; let bindFails = true; let sendFails = true;
@@ -393,8 +393,9 @@ test('custom prompt replaces the generated snapshot text; reset restores it', as
   const capability = sessions({ send: async (_id, value) => { sent = value; } });
   const view = await mount(t, createElement(TaskSessionLauncher, { record: target, settings: fixture().state().settings, capability, save: async () => target, body: 'unsaved draft', onChanged() {} }));
   const field = view.root.findByProps({ 'aria-label': '自定义 Prompt' });
-  // The default preview carries task identity and read guidance, not the draft body.
-  assert.match(field.props.value, /action=read/);
+  // The default preview carries task identity and direct-edit guidance, not the draft body.
+  assert.match(field.props.value, /任务文件：/);
+  assert.doesNotMatch(field.props.value, /action=read/);
   assert.doesNotMatch(field.props.value, /unsaved draft/);
   await act(async () => { field.props.onChange({ target: { value: '只发这句话。' } }); });
   await click(view, '保存并启动 Session');
@@ -402,7 +403,8 @@ test('custom prompt replaces the generated snapshot text; reset restores it', as
   await click(view, '准备另一个 Session');
   await click(view, '恢复默认');
   await click(view, '保存并启动 Session');
-  assert.match(sent, /action=read/);
+  assert.match(sent, /任务文件：/);
+  assert.doesNotMatch(sent, /action=read/);
   assert.doesNotMatch(sent, /# Saved body/);
 });
 test('remount during pending creation reuses progress and prevents concurrent launch', async t => {
@@ -462,13 +464,13 @@ test('review mode previews the scoped prompt and uses the selected model', async
   const prompt = view.root.findByProps({ 'aria-label': '自定义 Prompt' });
   assert.doesNotMatch(prompt.props.value, /action=read/);
   assert.doesNotMatch(prompt.props.value, /Only fix login timeout handling/);
-  assert.match(prompt.props.value, /只审查，不修改文件/);
-  assert.match(prompt.props.value, /仅审查与本次改动相关的文件/);
+  assert.match(prompt.props.value, /独立审查者/);
+  assert.match(prompt.props.value, /整体合理性/);
   const model = view.root.findAllByType('select').find(node => node.props.id && String(node.props.id).endsWith('-model'))!;
   await act(async () => model.props.onChange({ target: { value: JSON.stringify(['p', 'reviewer']) } }));
   await click(view, '保存并启动 Session');
   assert.equal(sent.length, 1);
-  assert.match(sent[0]!, /只审查，不修改文件/);
+  assert.match(sent[0]!, /独立审查者/);
   assert.deepEqual(applied, [{ provider: 'p', model: 'reviewer' }]);
 });
 
@@ -483,12 +485,12 @@ test('review mode resets custom prompt on mode switch and keeps normal launch in
   const field = view.root.findByProps({ 'aria-label': '自定义 Prompt' });
   await act(async () => field.props.onChange({ target: { value: 'custom review only' } }));
   await act(async () => review.props.onChange({ target: { checked: true } }));
-  assert.match(view.root.findByProps({ 'aria-label': '自定义 Prompt' }).props.value, /只审查，不修改文件/);
+  assert.match(view.root.findByProps({ 'aria-label': '自定义 Prompt' }).props.value, /独立审查者/);
   await act(async () => review.props.onChange({ target: { checked: false } }));
-  assert.match(view.root.findByProps({ 'aria-label': '自定义 Prompt' }).props.value, /根据任务要求开展工作/);
+  assert.match(view.root.findByProps({ 'aria-label': '自定义 Prompt' }).props.value, /任务文件：/);
   await click(view, '保存并启动 Session');
-  assert.match(sent, /根据任务要求开展工作/);
-  assert.doesNotMatch(sent, /只审查，不修改文件/);
+  assert.match(sent, /任务文件：/);
+  assert.doesNotMatch(sent, /独立审查者/);
 });
 
 test('right sidebar displays one selected task with a clear task switcher', async t => {

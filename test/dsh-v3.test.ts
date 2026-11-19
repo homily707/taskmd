@@ -101,7 +101,7 @@ test('file conflicts retain business error code and latest version', async () =>
   });
 });
 
-test('Agent tool and UI operations share task files and version checks', async () => {
+test('Agent tool exposes create/delete/bindings while read/update/list stay file-based', async () => {
   const root = await mkdtemp(join(tmpdir(), 'taskmd-tool-'));
   const home = join(root, 'home');
   await mkdir(home);
@@ -120,11 +120,16 @@ test('Agent tool and UI operations share task files and version checks', async (
     const execute = (args: Record<string, unknown>) => tool.execute(args as never, { signal: new AbortController().signal } as never);
     const record = await execute({ action: 'create', title: 'Agent-created', body: 'Context' }) as any;
     assert.equal((await files.read(record.task.id)).task.body, 'Context');
-    await execute({ action: 'update', taskId: record.task.id, expectedVersion: record.version, changes: { status: 'done' } });
-    await assert.rejects(execute({ action: 'update', taskId: record.task.id, expectedVersion: record.version, changes: { body: 'stale' } }), /changed|version|conflict/i);
-    const list = await execute({ action: 'list' }) as any;
-    assert.equal(list.tasks[0].body, undefined);
-    assert.equal(list.tasks[0].status, 'done');
+    // read/update/list are removed from the Agent tool surface; the Agent edits files directly.
+    const actions = ((tool.parameters as any).properties.action as { enum: string[] }).enum;
+    assert.deepEqual([...actions].sort(), ['attachment', 'bind', 'bindings', 'configure', 'create', 'delete', 'unbind']);
+    await assert.rejects(execute({ action: 'read', taskId: record.task.id }), /invalid arguments/i);
+    await assert.rejects(execute({ action: 'update', taskId: record.task.id, changes: { body: 'x' } }), /invalid arguments/i);
+    await assert.rejects(execute({ action: 'list' }), /invalid arguments/i);
+    // Delete works without expectedVersion by using the current content hash.
+    const deleted = await execute({ action: 'delete', taskId: record.task.id }) as any;
+    assert.deepEqual(deleted.deleted, [record.task.id]);
+    assert.equal((await files.state()).tasks.length, 0);
   } finally {
     files.close();
     assert.ok(root.startsWith(join(tmpdir(), 'taskmd-tool-')));

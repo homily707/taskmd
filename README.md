@@ -40,15 +40,16 @@ Home 设置与 Session 绑定保存在当前 DSH profile 的 `data/taskmd/` 本�
 
 ## Agent 工具
 
+`taskmd` 工具只保留任务结构与 Session 相关操作；任务正文和元数据的读取/修改由文件工具直接完成，效率更高。
+
 | action | 用途 |
 | --- | --- |
-| `list` / `read` | 任务摘要、完整 Markdown、路径和版本 |
-| `create` / `update` / `delete` | 与 UI 相同的文件操作 |
+| `create` / `delete` | 创建任务 / 级联删除子树（`delete` 可省略 `expectedVersion`，省略时用当前文件哈希） |
 | `configure` | 设置 Home 与相对任务目录 |
 | `bindings` / `bind` / `unbind` | 查询/修改本机会话关联 |
 | `attachment` | 读取任务中的相对附件 |
 
-`update` 的 `changes` 只接受 title、status、parent、order、archived、body；工具不隐式创建或向 Session 发消息。
+`read`、`update`、`list` 已从 Agent 工具中关闭（实现仍保留在核心与 UI remote，需要时再打开）。任务正文、`summary` 以及标题、状态、层级、排序、归档等元数据都直接编辑任务 Markdown 文件并保留 frontmatter；工具不隐式创建任务或向 Session 发消息。
 
 ## 边界
 
