@@ -58,9 +58,11 @@ export async function bindNativeSessionTask(
 
 const css = `
 [class*="heroOptions"]{margin-left:0!important}
-.tm-native-trigger{display:inline-flex;align-items:center;gap:5px;max-width:200px;height:30px;padding:0 9px;border:1px solid var(--dsw-alias-border-l1,color-mix(in srgb,CanvasText 15%,transparent));border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+.tm-native-trigger{display:inline-flex;align-items:center;gap:4px;max-width:min(100%,220px);min-height:28px;padding:0 8px;border:none;border-radius:var(--dsw-radius-sm);background:0 0;color:var(--dsw-alias-label-primary,CanvasText);cursor:pointer;font:inherit;font-size:13px;font-weight:500;line-height:20px;white-space:nowrap}
+.tm-native-trigger:hover{background:color-mix(in srgb,CanvasText 6%,transparent)}
 .tm-native-trigger span{overflow:hidden;text-overflow:ellipsis}
 .tm-native-trigger:disabled{opacity:.5;cursor:default}
+.tm-native-trigger .tm-native-chevron{color:var(--dsw-alias-label-caption,color-mix(in srgb,CanvasText 55%,transparent));flex:none}
 .tm-native-popover{position:fixed;z-index:10000;width:min(340px,calc(100vw - 16px));max-height:min(440px,80vh);overflow-y:auto;padding:12px;border:1px solid var(--dsw-alias-border-l1,color-mix(in srgb,CanvasText 15%,transparent));border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.24);background:var(--dsw-alias-bg-layer-2,Canvas);color:var(--dsw-alias-label-primary,CanvasText);font-size:13px;line-height:1.5}
 .tm-native-popover button,.tm-native-popover input{font:inherit}
 .tm-native-popover input{box-sizing:border-box;width:100%;min-height:32px;padding:5px 9px;border:1px solid rgba(127,127,127,.35);border-radius:7px;background:transparent;color:inherit}
@@ -180,7 +182,7 @@ export function NativeSessionTaskOption({ sessionId, useInput, inputActions, por
     <style>{css}</style>
     <button ref={anchor} type="button" className="tm-native-trigger" aria-label="选择或新建 taskmd 任务" aria-expanded={open} aria-controls={id}
       title={selected ? `已关联：${selected.task.title}` : '关联已有任务或新建任务'} onClick={() => setOpen(value => !value)}>
-      <span>{selected ? `TaskMD：${selected.task.title}` : boundId ? 'TaskMD · 已关联' : 'TaskMD'}</span><span aria-hidden="true">⌄</span>
+      <span>{selected ? `TaskMD：${selected.task.title}` : boundId ? 'TaskMD · 已关联' : 'TaskMD'}</span><svg className="tm-native-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
     </button>
     {open && typeof document !== 'undefined' && createPortal(<div ref={popup} id={id} role="dialog" aria-label="关联任务到新 Session"
       className="tm-native-popover" style={{ top: position.top, left: position.left }}>
