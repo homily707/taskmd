@@ -6,6 +6,13 @@ import type { SessionCapability, SessionStatus, TaskPort, WorkspaceSummary } fro
 export const statusLabels = { todo: '待办', in_progress: '进行中', done: '已完成', canceled: '已取消' } as const;
 export const compareTasks = (a: Task, b: Task) => a.order - b.order || a.id.localeCompare(b.id);
 export const failure = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
+/**
+ * Transport-level failures that resolve themselves (e.g. the Host half is briefly
+ * unmounted during a plugin reload, so `/api/taskmd/state` answers 404). These are
+ * not user-actionable and must never be surfaced as a persistent panel error.
+ */
+export const isTransientTransportError = (message: string) =>
+  /transport failure/i.test(message) || /taskmd\/state failed/i.test(message) || /HTTP 404/i.test(message);
 export function descendants(tasks: Task[], id: string): Set<string> {
   const result = new Set([id]);
   for (let changed = true; changed;) {
@@ -24,7 +31,7 @@ export function useTasks(port: TaskPort) {
     try {
       const next = await port.getState(controller.signal);
       if (!controller.signal.aborted) { setState(next); setError(''); }
-    } catch (cause) { if (!controller.signal.aborted) setError(failure(cause)); }
+    } catch (cause) { if (!controller.signal.aborted) { const message = failure(cause); if (!isTransientTransportError(message)) setError(message); } }
   }, [port]);
   useEffect(() => {
     setState(undefined); void refresh();

@@ -5,7 +5,7 @@ import type { SessionCapability, SessionStatus, TaskPort } from './port.js';
 import { chipLabel, levelLabels, levelOf, relativeActivity } from './agent-status.js';
 import { outlineRows } from './outline-model.js';
 import { HomeConfiguration } from './settings.js';
-import { failure, sessionLabel, statusLabels, useAgentView, useTasks } from './shared.js';
+import { failure, isTransientTransportError, sessionLabel, statusLabels, useAgentView, useTasks } from './shared.js';
 import { isString, isStringList, useStored } from './view-state.js';
 import { styles } from './styles.js';
 
@@ -71,6 +71,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
   const rows = useMemo(() => outlineRows(state?.tasks ?? [], collapsed, archived, query), [state, collapsed, archived, query]);
   const taskCount = state?.tasks.filter(record => !record.task.archived).length;
   const homeName = state?.settings.homeDirectory.split(/[\\/]/).filter(Boolean).pop();
+  const shownError = [error, actionError, agent.error].find(message => !!message && !isTransientTransportError(message)) ?? '';
   // Entering a Session owns the row highlight: its bound Task, if any, is the
   // selection; a Session with no bound Task selects nothing.
   let activeTaskId: string | undefined;
@@ -197,7 +198,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
       {createError && <p role="alert" className="taskmd-error">{createError}</p>}
     </form>}
     <div className="taskmd-left-scroll">
-      {(error || actionError || agent.error) && <p role="alert" className="taskmd-error">{error || actionError || agent.error} <button type="button" className="taskmd-inline-button" onClick={() => void refresh()}>重试</button></p>}
+      {shownError && <p role="alert" className="taskmd-error">{shownError} <button type="button" className="taskmd-inline-button" onClick={() => void refresh()}>重试</button></p>}
       <nav aria-label="任务导航">
         <ul className="taskmd-tree taskmd-nav-tree">{rows.map(({ task, depth, hasChildren }) => {
           const bindings = agent.bindingsByTask.get(task.id) ?? [];
@@ -299,7 +300,7 @@ function ActiveSessions({ sessions, onSessionMenu }: { sessions: SessionCapabili
       {summary.fresh > 0 && <span className="taskmd-agent-pill is-fresh" title="有新结果的会话数">✓ {summary.fresh}</span>}
       <span className="taskmd-muted" title={`共 ${rows.length} 个`}>{rows.length}</span>
     </div>
-    {error && <p className="taskmd-error" role="alert">{error}</p>}
+    {error && !isTransientTransportError(error) && <p className="taskmd-error" role="alert">{error}</p>}
     {!collapsed && <div className="taskmd-left-active-list">
       {rows.map(status => {
         const level = levelOf(status);
