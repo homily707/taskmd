@@ -1,4 +1,4 @@
 - insert:
     - id: taskmd
-      name: taskmd
+      name: '@homily/taskmd'
       disabled: !!js "!ctx.get('profileContext')"
