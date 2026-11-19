@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type Co
 import { createPortal } from 'react-dom';
 import { TaskmdApp, TaskmdDetailPanel, TaskmdSidebar } from '../ui/taskmd-app.js';
 import { TaskmdLeftSidebar } from '../ui/left-sidebar.js';
+import { NativeSessionTaskOption, type NativeTaskOptionProps } from '../ui/native-session-task.js';
 import type { TaskRecord } from '../types.js';
 import { asError, createDshAdapters, watchChanges, type SessionsService } from '../adapters/dsh.js';
 import { TYPERT_REMOTE } from './remote.js';
@@ -465,6 +466,16 @@ async function setup(ctx: ClientContext): Promise<void> {
       () => <TaskActivationBridge service={service} />,
     ));
   }, 'taskmd: right sidebar task hand-off'));
+
+  // DSH's native New Session hero is a blank Session, not a modal. Use the
+  // official, Session-scoped options slot so its normal workspace/preset/model
+  // controls and composer remain owned by DSH. Missing slots degrade quietly.
+  function NativeHeroTask(props: Omit<NativeTaskOptionProps, 'port' | 'sessions'>) {
+    return <NativeSessionTaskOption {...props} port={port} sessions={sessions} />;
+  }
+  ctx.effect(() => ctx.slots.inject('conversation.hero.options', () =>
+    ctx.slots.register({ name: 'conversation.hero.options', id: 'taskmd.native-session-task', order: 60 }, NativeHeroTask)
+  ), 'taskmd: native New Session task picker');
 
   ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL }, Root)), 'taskmd: main panel');
   ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL, order: 20, label: 'Tasks' }, TasksIcon)), 'taskmd: sidebar entry');
