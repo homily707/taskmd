@@ -9,6 +9,7 @@ DSH Home 中的任务大纲、Markdown 和关联会话。点击有会话的任�
 3. 通过插件 UI 或 `taskmd` Agent 工具创建任务。直接放在任务目录根部的普通手工 Markdown 不会自动导入；把合法任务文档放入 `<tasksDirectory>/inbox/` 会被自动导入，并创建、绑定一个 Session、发送任务快照。
 4. 编辑任务正文、调整大纲、切换状态、归档或关联已有 Session。
 5. 从任务启动 Session 时，默认选择 Home，也可以选择 **全部 DSH Workspace/repo** 中的任意项目。这个选择不会改变 Home 或任务位置。
+6. 从 DSH 官方「新建 Session」进入空白会话后，可在仓库、Agent preset 选项旁使用「＋任务」：选择已有任务直接绑定，或输入标题创建任务并绑定到当前 Session。任务 Prompt 只填入原生输入框供编辑，**不自动发送、不创建第二个 Session**。对已有草稿使用保守插入；若同时编辑导致插入失效，可在同一入口重试。已有其他关联时，先在 taskmd 侧栏解除。
 
 创建后的任务是普通 Markdown，可以用 Agent 文件工具或编辑器直接修改。UI 会监听变化，保留尚未保存的正文草稿，并在冲突时显示磁盘上的最新正文。Inbox 文件必须是带完整 frontmatter 的 taskmd 文档；不合法文件会留在 inbox 并显示诊断。Inbox 文档中的相对附件路径按导入后的任务目录解析，请按最终位置书写。
 
