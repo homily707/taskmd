@@ -57,6 +57,7 @@ export async function bindNativeSessionTask(
 }
 
 const css = `
+[class*="heroOptions"]{margin-left:0!important}
 .tm-native-trigger{display:inline-flex;align-items:center;gap:5px;max-width:200px;height:30px;padding:0 9px;border:1px solid var(--dsw-alias-border-l1,color-mix(in srgb,CanvasText 15%,transparent));border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
 .tm-native-trigger span{overflow:hidden;text-overflow:ellipsis}
 .tm-native-trigger:disabled{opacity:.5;cursor:default}
@@ -179,7 +180,7 @@ export function NativeSessionTaskOption({ sessionId, useInput, inputActions, por
     <style>{css}</style>
     <button ref={anchor} type="button" className="tm-native-trigger" aria-label="选择或新建 taskmd 任务" aria-expanded={open} aria-controls={id}
       title={selected ? `已关联：${selected.task.title}` : '关联已有任务或新建任务'} onClick={() => setOpen(value => !value)}>
-      <span>{selected ? `任务：${selected.task.title}` : boundId ? '已关联任务' : '＋ 任务'}</span><span aria-hidden="true">⌄</span>
+      <span>{selected ? `TaskMD：${selected.task.title}` : boundId ? 'TaskMD · 已关联' : 'TaskMD'}</span><span aria-hidden="true">⌄</span>
     </button>
     {open && typeof document !== 'undefined' && createPortal(<div ref={popup} id={id} role="dialog" aria-label="关联任务到新 Session"
       className="tm-native-popover" style={{ top: position.top, left: position.left }}>
