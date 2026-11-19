@@ -546,7 +546,7 @@ test('unbound session promotes the binding form without changing the bound layou
   assert.doesNotMatch(boundForm.props.className, /is-unbound/);
 });
 
-test('hovering new Session reveals model options after a short delay', async t => {
+test('clicking new Session reveals model options', async t => {
   const f = fixture();
   const capability = sessions({
     catalog: async () => ({ default: { provider: 'p', model: 'm' }, routableProviders: ['p'],
@@ -555,11 +555,11 @@ test('hovering new Session reveals model options after a short delay', async t =
   });
   const view = await mount(t, createElement(TaskmdDetailPanel, { port: f.port, sessions: capability, taskId: 'a' }));
   const trigger = view.root.findAllByType('button').find(node => text(node) === '＋ 新建 Session')!;
-  const launcher = () => view.root.findByProps({ className: 'taskmd-launcher' });
+  const launcher = () => view.root.findAllByType('details').find(node => String(node.props.className).includes('taskmd-launcher'))!;
+  assert.equal(trigger.props['aria-expanded'], false);
   assert.equal(launcher().props.open, false);
-  await act(async () => { trigger.props.onMouseEnter(); });
-  assert.equal(launcher().props.open, false);
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 430)); });
+  await act(async () => { trigger.props.onClick({}); });
+  assert.equal(trigger.props['aria-expanded'], true);
   assert.equal(launcher().props.open, true);
   assert.ok(launcher().findAllByType('select').some(node => String(node.props.id).endsWith('-model')));
   assert.match(text(launcher()), /Model/);
