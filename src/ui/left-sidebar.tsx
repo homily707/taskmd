@@ -207,7 +207,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
           const view = agent.views.get(task.id);
           const chip = view ? chipLabel(view, view.statuses.length) : undefined;
           return <li key={task.id} style={{ '--task-depth': depth } as CSSProperties}>
-            <div className={`taskmd-nav-row${highlighted === task.id ? ' is-selected' : ''}${busy === task.id ? ' is-busy' : ''}`}
+            <div className={`taskmd-nav-row${highlighted === task.id ? ' is-selected' : ''}${busy === task.id ? ' is-busy' : ''}${task.archived ? ' is-archived' : ''}`}
               onMouseEnter={event => { if (bindings.length) hoverPicker(task.id, event.currentTarget); }}
               onMouseLeave={scheduleClose}>
               <button type="button" className="taskmd-nav-hit"

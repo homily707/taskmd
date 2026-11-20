@@ -3,6 +3,7 @@ export const styles = `
 .taskmd-app{
   --tm-text:var(--dsw-alias-label-primary,CanvasText);
   --tm-muted:var(--dsw-alias-label-secondary,color-mix(in srgb,CanvasText 62%,transparent));
+  --tm-faint:var(--dsw-alias-label-caption,color-mix(in srgb,CanvasText 46%,transparent));
   --tm-border:var(--dsw-alias-border-l1,color-mix(in srgb,CanvasText 15%,transparent));
   --tm-border-strong:var(--dsw-alias-border-l2,color-mix(in srgb,CanvasText 28%,transparent));
   --tm-accent:var(--dsw-alias-brand-primary,#557ee8);
@@ -141,6 +142,8 @@ export const styles = `
 .taskmd-nav-fold:hover{color:var(--tm-text)!important;background:var(--tm-hover)!important}
 .taskmd-nav-label{flex:1;min-width:0;display:flex;align-items:center;border:0!important;background:transparent!important;padding:2px 1px!important;text-align:start;min-height:28px!important;overflow:hidden}
 .taskmd-nav-title{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:450;line-height:1.35}
+.taskmd-nav-row.is-archived .taskmd-nav-title{color:var(--tm-faint)}
+.taskmd-nav-row.is-archived .taskmd-status-dot{opacity:.3}
 .taskmd-nav-row.is-selected .taskmd-nav-title{color:var(--tm-accent);font-weight:600}
 .taskmd-session-badge{flex:none;border:1px solid transparent!important;border-radius:999px;padding:0 5px!important;min-height:18px!important;height:18px;font-size:9.5px!important;line-height:1;font-variant-numeric:tabular-nums;color:var(--tm-muted);background:var(--tm-hover)!important}
 .taskmd-session-badge:hover{border-color:var(--tm-border-strong)!important}
@@ -225,6 +228,9 @@ export const styles = `
 .taskmd-outline-label{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:0!important;background:transparent!important;text-align:start;padding:4px 6px!important;min-height:32px!important}
 .taskmd-outline-label:hover{background:transparent!important}
 .taskmd-outline-label strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500}
+.taskmd-outline-row.is-archived .taskmd-outline-label strong{color:var(--tm-faint)}
+.taskmd-outline-row.is-archived .taskmd-outline-label small{color:var(--tm-faint)}
+.taskmd-outline-row.is-archived .taskmd-status-dot{opacity:.3}
 .taskmd-outline-row.is-selected .taskmd-outline-label strong{color:var(--tm-accent);font-weight:600}
 .taskmd-outline-label small{font-size:10.5px;color:var(--tm-muted)}
 

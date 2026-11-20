@@ -44,7 +44,7 @@ export function TaskOutline({ state, port, selected, onSelect, onChanged, agent 
       const view = subtree.get(task.id);
       const chip = view ? chipLabel(view, view.statuses.length) : undefined;
       return <li key={task.id} style={{ '--task-depth': depth } as CSSProperties}>
-        <div className={`taskmd-outline-row${selected === task.id ? ' is-selected' : ''}`}>
+        <div className={`taskmd-outline-row${selected === task.id ? ' is-selected' : ''}${task.archived ? ' is-archived' : ''}`}>
           {hasChildren ? <button type="button" className="taskmd-fold" aria-label={`${collapsed.has(task.id) ? '展开' : '收起'} ${task.title}`} aria-expanded={!collapsed.has(task.id)} onClick={() => setCollapsed(previous => {
             const next = new Set(previous); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next;
           })}>{collapsed.has(task.id) ? '▸' : '▾'}</button> : <span className="taskmd-fold" aria-hidden="true" />}

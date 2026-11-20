@@ -31,12 +31,13 @@ test('launch prompt contains task identity and guidance but not a task body snap
   assert.doesNotMatch(prompt, /AGENTS\.md/);
 });
 
-test('review prompt re-examines the task and design from the review template', () => {
+test('review prompt focuses on the code implementation, not the task process', () => {
   const prompt = reviewPrompt(task);
   assert.doesNotMatch(prompt, /action=read/);
   assert.match(prompt, /独立审查者/);
-  assert.match(prompt, /整体合理性/);
+  assert.match(prompt, /代码实现/);
+  assert.match(prompt, /不要审查任务本身/);
   assert.match(prompt, /输出要求/);
-  assert.match(prompt, /不直接修改代码或方案/);
+  assert.match(prompt, /不直接修改代码/);
   assert.doesNotMatch(prompt, /CONFIDENTIAL_TASK_BODY_NOT_FOR_PROMPT/);
 });

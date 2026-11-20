@@ -78,6 +78,17 @@ test('outline hides archived subtrees and preserves ancestors in search', () => 
   assert.equal(outlineRows(records, new Set(), true).length, 4);
   assert.deepEqual(outlineRows(records, new Set(['p'])).map(row => row.task.id), ['p']);
 });
+test('archived task rows are visually marked as archived', async t => {
+  const f = fixture([record('live'), record('old', { archived: true })]);
+  const view = await mount(t, createElement(TaskmdLeftSidebar, { port: f.port, sessions: sessions(), wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {} }));
+  const rowClass = (node: ReactTestInstance) => typeof node.props.className === 'string' ? node.props.className : '';
+  assert.equal(view.root.findAllByType('div').filter(node => rowClass(node).includes('is-archived')).length, 0);
+  const toggle = view.root.findAllByType('input').find(node => node.props.type === 'checkbox')!;
+  await act(async () => toggle.props.onChange({ target: { checked: true } }));
+  const archived = view.root.findAllByType('div').filter(node => rowClass(node).includes('taskmd-nav-row') && rowClass(node).includes('is-archived'));
+  assert.equal(archived.length, 1);
+  assert.match(text(archived[0]!), /Task old/);
+});
 test('sibling order moves use a single numeric update', () => {
   const tasks = [record('a', { order: 0 }).task, record('b', { order: 10 }).task, record('c', { order: 20 }).task];
   assert.equal(movedOrder(tasks, 'a', 1), 15);
@@ -465,7 +476,7 @@ test('review mode previews the scoped prompt and uses the selected model', async
   assert.doesNotMatch(prompt.props.value, /action=read/);
   assert.doesNotMatch(prompt.props.value, /Only fix login timeout handling/);
   assert.match(prompt.props.value, /独立审查者/);
-  assert.match(prompt.props.value, /整体合理性/);
+  assert.match(prompt.props.value, /代码实现/);
   const model = view.root.findAllByType('select').find(node => node.props.id && String(node.props.id).endsWith('-model'))!;
   await act(async () => model.props.onChange({ target: { value: JSON.stringify(['p', 'reviewer']) } }));
   await click(view, '保存并启动 Session');
