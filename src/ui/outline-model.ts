@@ -1,8 +1,8 @@
-import type { Task, TaskRecord } from '../types.js';
+import type { Task, TaskRecord, TaskStatus } from '../types.js';
 import { compareTasks } from './shared.js';
 
 /** Archived ancestors hide their whole branch, including during search. */
-export function outlineRows(records: TaskRecord[], collapsed = new Set<string>(), showArchived = false, query = '') {
+export function outlineRows(records: TaskRecord[], collapsed = new Set<string>(), showArchived = false, query = '', status?: TaskStatus) {
   const tasks = records.map(record => record.task);
   const byId = new Map(tasks.map(task => [task.id, task]));
   const visible = tasks.filter(task => {
@@ -15,7 +15,7 @@ export function outlineRows(records: TaskRecord[], collapsed = new Set<string>()
     return true;
   });
   const matching = new Set<string>();
-  for (const task of visible) if (`${task.title} ${task.id}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) {
+  for (const task of visible) if ((!status || task.status === status) && `${task.title} ${task.id}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) {
     let cursor: Task | undefined = task;
     while (cursor && !matching.has(cursor.id)) { matching.add(cursor.id); cursor = cursor.parent ? byId.get(cursor.parent) : undefined; }
   }
@@ -30,7 +30,7 @@ export function outlineRows(records: TaskRecord[], collapsed = new Set<string>()
     for (const task of (children.get(parent) ?? []).sort(compareTasks)) {
       if (visited.has(task.id)) continue;
       visited.add(task.id); rows.push({ task, depth, hasChildren: !!children.get(task.id)?.length });
-      if (query || !collapsed.has(task.id)) visit(task.id, depth + 1);
+      if (query || status || !collapsed.has(task.id)) visit(task.id, depth + 1);
     }
   };
   visit(null, 0);

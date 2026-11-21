@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import type { TaskRecord, TaskSessionBinding } from '../types.js';
+import type { TaskRecord, TaskSessionBinding, TaskStatus } from '../types.js';
 import type { SessionCapability, SessionStatus, TaskPort } from './port.js';
 import { chipLabel, levelLabels, levelOf, relativeActivity } from './agent-status.js';
 import { outlineRows } from './outline-model.js';
@@ -55,6 +55,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
   const [selected, setSelected] = useStored<string | undefined>('leftSelected', undefined, isStringOrUndefined);
   const [collapsedList, setCollapsedList] = useStored<string[]>('leftCollapsed', [], isStringList);
   const [query, setQuery] = useState('');
+  const [status, setStatus] = useState<TaskStatus | ''>('');
   const [archived, setArchived] = useState(false);
   const [busy, setBusy] = useState<string>();
   const [actionError, setActionError] = useState('');
@@ -68,7 +69,8 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
   const hoverClose = useRef<number>();
   const ids = useId();
   const collapsed = useMemo(() => new Set(collapsedList), [collapsedList]);
-  const rows = useMemo(() => outlineRows(state?.tasks ?? [], collapsed, archived, query), [state, collapsed, archived, query]);
+  const rows = useMemo(() => outlineRows(state?.tasks ?? [], collapsed, archived, query, status || undefined), [state, collapsed, archived, query, status]);
+  const expandAll = !!query || !!status;
   const taskCount = state?.tasks.filter(record => !record.task.archived).length;
   const homeName = state?.settings.homeDirectory.split(/[\\/]/).filter(Boolean).pop();
   const shownError = [error, actionError, agent.error].find(message => !!message && !isTransientTransportError(message)) ?? '';
@@ -171,10 +173,17 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
     <ActiveSessions sessions={sessions} onSessionMenu={onSessionMenu} />
     <div className="taskmd-left-search">
       <label className="taskmd-visually-hidden" htmlFor={`${ids}-search`}>搜索任务</label>
-      <div className="taskmd-search-box">
-        <span aria-hidden="true" className="taskmd-search-icon">⌕</span>
-        <input id={`${ids}-search`} type="search" value={query} placeholder="搜索任务" onChange={event => setQuery(event.target.value)} />
-        {!!query && <button type="button" className="taskmd-search-clear" aria-label="清除搜索" onClick={() => setQuery('')}>×</button>}
+      <div className="taskmd-search-row">
+        <div className="taskmd-search-box">
+          <span aria-hidden="true" className="taskmd-search-icon">⌕</span>
+          <input id={`${ids}-search`} type="search" value={query} placeholder="搜索任务" onChange={event => setQuery(event.target.value)} />
+          {!!query && <button type="button" className="taskmd-search-clear" aria-label="清除搜索" onClick={() => setQuery('')}>×</button>}
+        </div>
+        <label className="taskmd-visually-hidden" htmlFor={`${ids}-status`}>按状态筛选任务</label>
+        <select id={`${ids}-status`} className={`taskmd-status-filter${status ? ' is-active' : ''}`} aria-label="按状态筛选任务" title="按状态筛选任务" value={status} onChange={event => setStatus(event.target.value as TaskStatus | '')}>
+          <option value="">全部状态</option>
+          {(Object.entries(statusLabels) as [TaskStatus, string][]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
       </div>
     </div>
     {createOpen && <form className="taskmd-left-create" onSubmit={event => {
@@ -217,7 +226,9 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
                 disabled={busy === task.id}
                 onClick={() => void activateTask(state!.tasks.find(record => record.task.id === task.id)!)} />
               {hasChildren
-                ? <button type="button" className="taskmd-nav-fold" aria-label={`${collapsed.has(task.id) ? '展开' : '折叠'} ${task.title} 的子任务`} aria-expanded={!collapsed.has(task.id)} onClick={() => setCollapsedList(previous => toggle(previous, task.id))}>{collapsed.has(task.id) ? '▸' : '▾'}</button>
+                ? expandAll
+                  ? <span className="taskmd-nav-fold" aria-hidden="true">▾</span>
+                  : <button type="button" className="taskmd-nav-fold" aria-label={`${collapsed.has(task.id) ? '展开' : '折叠'} ${task.title} 的子任务`} aria-expanded={!collapsed.has(task.id)} onClick={() => setCollapsedList(previous => toggle(previous, task.id))}>{collapsed.has(task.id) ? '▸' : '▾'}</button>
                 : <span className="taskmd-nav-fold" aria-hidden="true" />}
               <span className={`taskmd-status-dot is-${task.status}`} role="img" aria-label={`任务状态：${statusLabels[task.status]}`} />
               <span className="taskmd-nav-label" title={`${task.title} · ${statusLabels[task.status]}`}>
@@ -233,7 +244,7 @@ export function TaskmdLeftSidebar({ port, sessions, wide, expandSidebar, onOpenT
           </li>;
         })}</ul>
       </nav>
-      {!rows.length && <div className="taskmd-empty-inline">{query ? '没有匹配的任务。' : state ? '还没有任务。' : '正在读取任务…'}{query && <button type="button" className="taskmd-inline-button" onClick={() => setQuery('')}>清除搜索</button>}</div>}
+      {!rows.length && <div className="taskmd-empty-inline">{query || status ? '没有匹配的任务。' : state ? '还没有任务。' : '正在读取任务…'}{(query || status) && <button type="button" className="taskmd-inline-button" onClick={() => { setQuery(''); setStatus(''); }}>清除筛选</button>}</div>}
     </div>
     <footer className="taskmd-left-footer">
       <div className="taskmd-left-footer-row">

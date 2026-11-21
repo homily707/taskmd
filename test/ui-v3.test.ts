@@ -78,6 +78,23 @@ test('outline hides archived subtrees and preserves ancestors in search', () => 
   assert.equal(outlineRows(records, new Set(), true).length, 4);
   assert.deepEqual(outlineRows(records, new Set(['p'])).map(row => row.task.id), ['p']);
 });
+test('outline filters by status while preserving ancestors', () => {
+  const records = [record('p', { status: 'todo' }), record('c', { parent: 'p', status: 'in_progress' }), record('d', { status: 'done' })];
+  assert.deepEqual(outlineRows(records, new Set(), false, '', 'in_progress').map(row => row.task.id), ['p', 'c']);
+  assert.deepEqual(outlineRows(records, new Set(['p']), false, '', 'in_progress').map(row => row.task.id), ['p', 'c']);
+  assert.deepEqual(outlineRows(records, new Set(), false, '', 'done').map(row => row.task.id), ['d']);
+});
+test('left sidebar filters tasks by status', async t => {
+  const f = fixture([record('todo'), record('done', { title: 'Task done', status: 'done' })]);
+  const view = await mount(t, createElement(TaskmdLeftSidebar, { port: f.port, sessions: sessions(), wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {} }));
+  const filter = view.root.findAllByType('select').find(node => node.props['aria-label'] === '按状态筛选任务');
+  assert.ok(filter);
+  await act(async () => { filter.props.onChange({ target: { value: 'done' } }); });
+  const rowClass = (node: ReactTestInstance) => typeof node.props.className === 'string' ? node.props.className : '';
+  const rows = view.root.findAllByType('div').filter(node => rowClass(node).includes('taskmd-nav-row'));
+  assert.equal(rows.length, 1);
+  assert.match(text(rows[0]!), /Task done/);
+});
 test('archived task rows are visually marked as archived', async t => {
   const f = fixture([record('live'), record('old', { archived: true })]);
   const view = await mount(t, createElement(TaskmdLeftSidebar, { port: f.port, sessions: sessions(), wide: true, expandSidebar() {}, showSessions() {}, onOpenTask() {} }));

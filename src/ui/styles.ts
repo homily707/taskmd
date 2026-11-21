@@ -84,7 +84,7 @@ export const styles = `
 .taskmd-left-rail-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 4px}
 .taskmd-rail-button{width:34px;min-width:34px;height:34px;display:grid;place-items:center;border-color:transparent!important;background:transparent!important;font-size:17px;color:var(--tm-muted)}
 .taskmd-rail-button:hover{background:var(--tm-hover)!important;color:var(--tm-text)}
-.taskmd-left-sidebar{padding:0;display:flex;flex-direction:column;overflow:hidden;height:100%;min-height:calc(100cqh - 152px);background:transparent}
+.taskmd-left-sidebar{padding:0;display:flex;flex-direction:column;overflow:hidden;height:100%;min-height:calc(100cqh - 152px);max-height:calc(100cqh - 152px);background:transparent}
 .taskmd-left-header{display:flex;align-items:center;gap:5px;padding:8px 8px 3px;flex:none;min-width:0}
 .taskmd-left-brand{display:flex;align-items:center;gap:6px;min-width:0;flex:1}
 .taskmd-left-brand h2{margin:0;font-size:13px;font-weight:650;letter-spacing:.01em;white-space:nowrap}
@@ -106,8 +106,11 @@ export const styles = `
 .taskmd-active-session-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px}
 .taskmd-active-session-meta{flex:none;font-size:9.5px;color:var(--tm-muted)}
 .taskmd-left-search{padding:0 8px 4px;flex:none}
-.taskmd-search-box{display:flex;align-items:center;gap:4px;border:1px solid var(--tm-border);border-radius:7px;background:color-mix(in srgb,var(--tm-text) 4%,transparent);padding:0 6px;transition:border-color 140ms ease-out,box-shadow 140ms ease-out}
+.taskmd-search-row{display:flex;align-items:center;gap:4px;min-width:0}
+.taskmd-search-box{display:flex;align-items:center;gap:4px;border:1px solid var(--tm-border);border-radius:7px;background:color-mix(in srgb,var(--tm-text) 4%,transparent);padding:0 6px;flex:1;min-width:0;transition:border-color 140ms ease-out,box-shadow 140ms ease-out}
 .taskmd-search-box:focus-within{border-color:var(--tm-accent);box-shadow:0 0 0 3px var(--tm-accent-soft)}
+.taskmd-status-filter{flex:none;width:auto;min-width:0;max-width:96px;min-height:28px;padding:2px 18px 2px 6px;font-size:11.5px;border-radius:7px;color:var(--tm-muted)}
+.taskmd-status-filter.is-active{color:var(--tm-accent);border-color:var(--tm-accent);background:var(--tm-accent-soft)}
 .taskmd-search-icon{color:var(--tm-muted);font-size:13px;flex:none;line-height:1}
 .taskmd-search-box input{border:0!important;background:transparent!important;min-height:26px!important;padding:2px 0!important;flex:1;min-width:0;outline:none!important;box-shadow:none!important;font-size:11.5px!important}
 .taskmd-search-clear{width:20px;min-width:20px;height:20px;min-height:20px!important;padding:0!important;border:0!important;background:transparent!important;color:var(--tm-muted);font-size:14px;display:grid;place-items:center}
