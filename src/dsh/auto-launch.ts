@@ -9,7 +9,6 @@ export interface SessionInboxController {
   create(request: { workspaceId?: string; cwd?: string; agentPreset?: string }): Promise<{ sessionId: string }>;
   modelCatalog?(): Promise<{ groups: { id: string; models: { id: string; reasoning?: { efforts: { id: string }[] } }[] }[] }>;
   selectModel?(request: { sessionId: string; provider: string; model: string; reasoningEffort?: string }): Promise<unknown>;
-  rename?(request: { sessionId: string; title: string }): Promise<unknown>;
   prompt(request: {
     requestId: string;
     sessionId: string;
@@ -25,7 +24,7 @@ const FAILED = 'failed';
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const hashOf = (content: string): string => createHash('sha256').update(content).digest('hex');
-const emptyApplied = () => ({ created: false, model: false, bound: false, renamed: false, prompted: false });
+const emptyApplied = () => ({ created: false, model: false, bound: false, prompted: false });
 
 function sessionIdFromError(error: unknown): string | undefined {
   if (!error || typeof error !== 'object') return undefined;
@@ -180,10 +179,6 @@ export class SessionInboxLauncher {
       if (request.taskId) {
         await this.files.bind(request.taskId, sessionId);
         applied.bound = true;
-      }
-      if (request.title && controller.rename) {
-        try { await controller.rename({ sessionId, title: request.title }); applied.renamed = true; }
-        catch (error) { console.warn('taskmd: renaming the new Session failed', error); }
       }
       if (request.prompt) {
         await controller.prompt({

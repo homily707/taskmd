@@ -5,7 +5,7 @@ import { TaskError, type Diagnostic, type SessionInboxEntry, type SessionInboxMo
 
 /** Requests larger than this are almost certainly not a session descriptor. */
 export const MAX_REQUEST = 256 * 1024;
-const FIELDS = new Set(['version', 'workspaceId', 'cwd', 'agentPreset', 'model', 'taskId', 'title', 'prompt']);
+const FIELDS = new Set(['version', 'workspaceId', 'cwd', 'agentPreset', 'model', 'taskId', 'prompt']);
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -43,8 +43,6 @@ export function parseSessionRequest(content: string): SessionInboxRequest {
   if ((workspaceId === undefined) === (cwd === undefined)) invalid('Provide exactly one of "workspaceId" or "cwd".');
   const taskId = data.taskId === undefined ? undefined : nonEmpty(data.taskId, 'taskId');
   if (taskId !== undefined && !UUID.test(taskId)) invalid('"taskId" must be a task UUID.');
-  const title = optionalString(data.title, 'title');
-  if (title !== undefined && title.length > 200) invalid('"title" must be at most 200 characters.');
   const prompt = data.prompt === undefined ? undefined : data.prompt;
   if (prompt !== undefined && typeof prompt !== 'string') invalid('"prompt" must be a string.');
   return {
@@ -54,7 +52,6 @@ export function parseSessionRequest(content: string): SessionInboxRequest {
     ...(data.agentPreset !== undefined ? { agentPreset: nonEmpty(data.agentPreset, 'agentPreset') } : {}),
     ...(data.model !== undefined ? { model: parseModel(data.model) } : {}),
     ...(taskId !== undefined ? { taskId } : {}),
-    ...(title !== undefined ? { title } : {}),
     ...(prompt !== undefined && prompt !== '' ? { prompt } : {}),
   };
 }

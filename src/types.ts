@@ -42,7 +42,6 @@ export interface SessionInboxRequest {
   agentPreset?: string;
   model?: SessionInboxModel;
   taskId?: string;
-  title?: string;
   prompt?: string;
 }
 export interface SessionInboxEntry { name: string; path: string; content: string; version: string; request: SessionInboxRequest }
@@ -52,7 +51,7 @@ export interface SessionInboxResult {
   source: string;
   status: 'done' | 'failed' | 'unknown';
   sessionId?: string;
-  applied: { created: boolean; model: boolean; bound: boolean; renamed: boolean; prompted: boolean };
+  applied: { created: boolean; model: boolean; bound: boolean; prompted: boolean };
   error?: { code: string; message: string };
   startedAt: string;
   finishedAt: string;

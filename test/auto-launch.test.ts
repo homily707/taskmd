@@ -11,7 +11,6 @@ interface Calls {
   created: unknown[];
   prompts: unknown[];
   models: unknown[];
-  renamed: unknown[];
 }
 
 async function fixture(t: TestContext) {
@@ -38,7 +37,6 @@ function controller(calls: Calls, catalog?: { groups: { id: string; models: { id
     },
     async modelCatalog() { return catalog ?? { groups: [] }; },
     async selectModel(request) { calls.models.push(request); return {}; },
-    async rename(request) { calls.renamed.push(request); return {}; },
     async prompt(request) { calls.prompts.push(request); return { accepted: true }; },
   };
 }
@@ -52,7 +50,7 @@ const result = async (inbox: string, dir: string, name: string) =>
 
 test('one JSON request creates exactly one Session and sends its prompt', async t => {
   const f = await fixture(t);
-  const calls: Calls = { created: [], prompts: [], models: [], renamed: [] };
+  const calls: Calls = { created: [], prompts: [], models: [] };
   const launcher = new SessionInboxLauncher(f.files, () => controller(calls));
   await writeRequest(f.inbox, 'job.json', request({ prompt: '帮我看看这个仓库' }));
 
@@ -76,7 +74,7 @@ test('one JSON request creates exactly one Session and sends its prompt', async 
 test('a request selects the requested model and rejects an unknown one', async t => {
   const f = await fixture(t);
   const catalog = { groups: [{ id: 'prov', models: [{ id: 'fast', reasoning: { efforts: [{ id: 'high' }] } }] }] };
-  const calls: Calls = { created: [], prompts: [], models: [], renamed: [] };
+  const calls: Calls = { created: [], prompts: [], models: [] };
   const launcher = new SessionInboxLauncher(f.files, () => controller(calls, catalog));
   await writeRequest(f.inbox, 'model.json', request({ model: { provider: 'prov', model: 'fast', reasoningEffort: 'high' } }));
   await launcher.pump();
@@ -93,7 +91,7 @@ test('a request selects the requested model and rejects an unknown one', async t
 test('an optional taskId binds the new Session, and an unknown task fails before creation', async t => {
   const f = await fixture(t);
   const task = await f.files.create({ title: 'Bound' });
-  const calls: Calls = { created: [], prompts: [], models: [], renamed: [] };
+  const calls: Calls = { created: [], prompts: [], models: [] };
   const launcher = new SessionInboxLauncher(f.files, () => controller(calls));
   await writeRequest(f.inbox, 'bound.json', request({ taskId: task.task.id, prompt: 'go' }));
   await launcher.pump();
@@ -112,7 +110,7 @@ test('an optional taskId binds the new Session, and an unknown task fails before
 
 test('malformed requests are diagnosed and left in place without creating a Session', async t => {
   const f = await fixture(t);
-  const calls: Calls = { created: [], prompts: [], models: [], renamed: [] };
+  const calls: Calls = { created: [], prompts: [], models: [] };
   const launcher = new SessionInboxLauncher(f.files, () => controller(calls));
   await writeRequest(f.inbox, 'bad.json', '{ not json');
   await launcher.pump();
@@ -123,9 +121,22 @@ test('malformed requests are diagnosed and left in place without creating a Sess
   await assert.doesNotReject(readFile(join(f.inbox, 'bad.json')));
 });
 
+test('a request cannot pin the Session title; DSH owns automatic titles', async t => {
+  const f = await fixture(t);
+  const calls: Calls = { created: [], prompts: [], models: [] };
+  const launcher = new SessionInboxLauncher(f.files, () => controller(calls));
+  await writeRequest(f.inbox, 'title.json', request({ title: '固定标题' }));
+  await launcher.pump();
+  assert.equal(calls.created.length, 0);
+  const state = await f.files.state();
+  assert.equal(state.inbox.diagnostics.length, 1);
+  assert.match(state.inbox.diagnostics[0]!.message, /Unknown field: title/);
+  await assert.doesNotReject(readFile(join(f.inbox, 'title.json')));
+});
+
 test('an interrupted request in processing becomes unknown instead of creating twice', async t => {
   const f = await fixture(t);
-  const calls: Calls = { created: [], prompts: [], models: [], renamed: [] };
+  const calls: Calls = { created: [], prompts: [], models: [] };
   await mkdir(join(f.inbox, 'processing'), { recursive: true });
   await writeRequest(join(f.inbox, 'processing'), 'stale.json', request());
   const launcher = new SessionInboxLauncher(f.files, () => controller(calls));
@@ -137,7 +148,7 @@ test('an interrupted request in processing becomes unknown instead of creating t
 
 test('a failed workspace attach records the Session that was already created', async t => {
   const f = await fixture(t);
-  const calls: Calls = { created: [], prompts: [], models: [], renamed: [] };
+  const calls: Calls = { created: [], prompts: [], models: [] };
   const launcher = new SessionInboxLauncher(f.files, () => ({
     async create() { throw { code: 'session/workspace-attach-failed', details: { sessionId: 'orphan-1' } }; },
     async prompt() { return { accepted: true }; },

@@ -49,13 +49,13 @@ Home 设置与 Session 绑定保存在当前 DSH profile 的 `data/taskmd/` 本�
   "agentPreset": "可选 preset",
   "model": { "provider": "magpie", "model": "workbuddy/deepseek-v4.1-flash", "reasoningEffort": "high" },
   "taskId": "可选：创建后绑定到该任务",
-  "title": "可选：会话标题",
   "prompt": "可选：初始消息"
 }
 ```
 
 - `workspaceId` 与 `cwd`（绝对路径）二选一；也可给 `cwd` 直接指定目录。
 - `taskId` 不存在时直接失败、不创建会话；`prompt` 省略得到空白会话。
+- 会话标题由 DSH 自动生成；收件箱不接受 `title` 字段，也不调用重命名。
 - `inbox/` 只认 `*.json`；旧的 `*.md` 不再自动导入，会原样留在原地。
 - 进程中断时，`processing/` 中的请求标为结果不明并移入 `failed/`，不会重复创建。
 
