@@ -11,7 +11,7 @@ DSH Home 中的任务大纲、Markdown 和关联会话。点击有会话的任�
 1. 启用 taskmd，在任务面板选一个 DSH Workspace 作为 Home，任务目录默认 `./tasks`。
 2. 用插件 UI 或 `taskmd` Agent 工具创建任务；从任务启动 Session 时可选择 Home 或任意 Workspace，不影响 Home 和任务位置。
 3. 任务是普通 Markdown，可用编辑器或文件工具直接改；UI 会监听变化、保留草稿，冲突时显示磁盘上的最新正文。
-4. 把合法任务文档放进 `<tasksDirectory>/inbox/` 会自动导入，并创建、绑定一个 Session（一次性领取，重启不重复）。
+4. 把 JSON 会话请求放进 `<tasksDirectory>/inbox/` 会自动创建一个 Session（一次性领取，重启不重复）；格式见下文「会话收件箱」。
 5. 从 DSH 官方「新建 Session」进入空白会话后，可在仓库、Agent preset 选项旁使用「＋任务」：选择已有任务直接绑定，或输入标题创建任务并绑定到当前 Session。任务 Prompt 只填入原生输入框供编辑，不自动发送、不创建第二个 Session。对已有草稿使用保守插入；若同时编辑导致插入失效，可在同一入口重试。已有其他关联时，先在 taskmd 侧栏解除。
 
 ## 任务文件
@@ -37,6 +37,27 @@ title: 我的任务
 - 附件放在 Home 内、用相对路径引用，规范化后须留在 Home 内；支持安全图片/文本预览，附件上限 8 MiB，任务文档上限 1 MiB。
 
 Home 设置与 Session 绑定保存在当前 DSH profile 的 `data/taskmd/` 本机 JSON。更新/删除需 `expectedVersion`，冲突后重读并合并。
+
+## 会话收件箱
+
+在 `<Home>/<tasksDirectory>/inbox/` 放一个 `*.json` 文件，会创建一个**会话**（不再导入任务）。处理完的请求移入 `done/` 或 `failed/`，并写同名 `<名字>.result.json` 记录 `sessionId`、`applied` 阶段和错误。
+
+```json
+{
+  "version": 1,
+  "workspaceId": "工作区 ID",
+  "agentPreset": "可选 preset",
+  "model": { "provider": "magpie", "model": "workbuddy/deepseek-v4.1-flash", "reasoningEffort": "high" },
+  "taskId": "可选：创建后绑定到该任务",
+  "title": "可选：会话标题",
+  "prompt": "可选：初始消息"
+}
+```
+
+- `workspaceId` 与 `cwd`（绝对路径）二选一；也可给 `cwd` 直接指定目录。
+- `taskId` 不存在时直接失败、不创建会话；`prompt` 省略得到空白会话。
+- `inbox/` 只认 `*.json`；旧的 `*.md` 不再自动导入，会原样留在原地。
+- 进程中断时，`processing/` 中的请求标为结果不明并移入 `failed/`，不会重复创建。
 
 ## Agent 工具
 

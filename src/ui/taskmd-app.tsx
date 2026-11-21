@@ -38,7 +38,7 @@ export function TaskmdApp({ port, sessions, initialTaskId, selectionToken, sessi
         <aside className="taskmd-list-pane"><TaskOutline state={state} port={port} selected={selected} onSelect={id => { setSelected(id); setDetail(true); }} onChanged={refresh} agent={agent} />
           <HomeConfiguration key={`${state.settings.homeDirectory}:${state.settings.tasksDirectory}`} settings={state.settings} port={port} sessions={sessions} onChanged={refresh} />
           {!!state.diagnostics.length && <details><summary>文件提示 · {state.diagnostics.length}</summary><ul>{state.diagnostics.map((item, index) => <li key={index}>{item.path}：{item.message}</li>)}</ul></details>}
-          {!!state.inbox?.pending && <p className="taskmd-muted">Inbox：{state.inbox.pending} 个任务等待自动导入。</p>}
+          {!!state.inbox?.pending && <p className="taskmd-muted">Inbox：{state.inbox.pending} 个会话请求待处理。</p>}
           {!!state.inbox?.diagnostics.length && <details><summary>Inbox 提示 · {state.inbox.diagnostics.length}</summary><ul>{state.inbox.diagnostics.map((item, index) => <li key={index}>{item.path}：{item.message}</li>)}</ul></details>}
         </aside>
         <div className="taskmd-detail-pane"><button className="taskmd-back" onClick={() => setDetail(false)}>返回任务大纲</button>

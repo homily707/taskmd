@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-api-gateway';
 import type {} from '@deepseek-ai/dsh-api-remote-access';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import { TaskFiles } from '../core/files.js';
-import { InboxAutoLauncher, type AutoLaunchSessionController } from './auto-launch.js';
+import { SessionInboxLauncher, type SessionInboxController } from './auto-launch.js';
 import { TaskError, type Attachment, type CreateTaskInput, type HomeSettings, type State, type TaskChanges, type TaskRecord, type TaskSessionBinding } from '../types.js';
 import type { TaskmdChange, TaskmdRemote, TaskmdFileError } from './remote.js';
 import { registerTaskTools } from './tools.js';
@@ -36,11 +36,11 @@ export default class TaskmdHost extends TypertRemoteService implements TaskmdRem
   static inject = ['typertGateway', 'remoteAccess', 'profileContext'];
   static Config = z.object({});
   private readonly files: TaskFiles;
-  private readonly launcher: InboxAutoLauncher;
+  private readonly launcher: SessionInboxLauncher;
   private readonly initialized: PromiseLike<unknown>;
   private readonly lifetime = new AbortController();
   private readonly pending = new Set<Promise<unknown>>();
-  private sessionController?: AutoLaunchSessionController;
+  private sessionController?: SessionInboxController;
 
   constructor(ctx: Context) {
     super(ctx, 'taskmd');
@@ -48,7 +48,7 @@ export default class TaskmdHost extends TypertRemoteService implements TaskmdRem
     const profile = ctx.get('profileContext') as { dir: string };
     const localDirectory = join(profile.dir, 'data', 'taskmd');
     this.files = new TaskFiles({ localDirectory });
-    this.launcher = new InboxAutoLauncher(this.files, localDirectory, () => this.sessionController);
+    this.launcher = new SessionInboxLauncher(this.files, () => this.sessionController);
     this.initialized = ctx.effect(async () => {
       try { await this.files.init(); this.launcher.start(); } catch (error) { this.files.close(); throw error; }
       return async () => {
@@ -61,7 +61,7 @@ export default class TaskmdHost extends TypertRemoteService implements TaskmdRem
     registerTaskTools(ctx, this);
     this.watchForks(ctx);
     ctx.inject(['sessionController'], scope => {
-      this.sessionController = scope.get('sessionController') as AutoLaunchSessionController | undefined;
+      this.sessionController = scope.get('sessionController') as SessionInboxController | undefined;
       this.launcher.kick();
       return () => { this.sessionController = undefined; };
     });

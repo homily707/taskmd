@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { TaskFiles } from '../src/core/files.js';
-import { createDocument, parseInboxDocument } from '../src/core/document.js';
 import { TaskError, type HomeSettings } from '../src/types.js';
 
 async function fixture(t: TestContext) {
@@ -72,8 +71,6 @@ test('summary is a managed frontmatter field surfaced by create, update and inbo
   assert.match(updated.content, /\nsummary: 更新后的摘要\n/);
   await assert.rejects(files.update(updated.task.id, { summary: 'x'.repeat(501) }, updated.version), errorCode('invalid_document'));
   await assert.rejects(files.update(updated.task.id, { summary: 42 } as never, updated.version), errorCode('invalid_document'));
-  assert.equal(parseInboxDocument('---\ntaskmd: 0.3\ntitle: From inbox\nsummary: 来自 inbox\n---\nbody\n').summary, '来自 inbox');
-  assert.equal(parseInboxDocument('---\ntaskmd: 0.3\ntitle: No summary\n---\nbody\n').summary, undefined);
 });
 
 test('conditional update and deletion preserve external edits and report latest version', async t => {
@@ -326,69 +323,29 @@ test('duplicate titles remain distinct and old UUID filenames stay readable', as
   assert.equal((await files.state()).tasks.find(record => record.task.id === first.task.id)!.path, legacyPath);
 });
 
-test('inbox imports valid task documents once and leaves malformed files diagnosed', async t => {
+test('session inbox scans JSON requests and diagnoses malformed files', async t => {
   const { files, home } = await fixture(t);
   const inbox = join(home, 'tasks', 'inbox');
-  const queued = createDocument({ id: randomUUID(), title: 'Queued', status: 'todo', parent: null, order: 0, archived: false, body: 'do it' });
-  await writeFile(join(inbox, 'queued.md'), queued);
-  await writeFile(join(inbox, 'bad.md'), '---\ntaskmd: 0.3\nid: not-a-uuid\n---\n');
-  const snapshot = await files.inboxEntries();
+  await writeFile(join(inbox, 'request.json'), JSON.stringify({ version: 1, workspaceId: 'home-ws', prompt: 'hi' }));
+  await writeFile(join(inbox, 'bad.json'), '{ not json');
+  await writeFile(join(inbox, 'ignored.md'), '# old task');
+  const snapshot = await files.sessionInbox();
   assert.equal(snapshot.entries.length, 1);
+  assert.equal(snapshot.entries[0]!.request.prompt, 'hi');
   assert.equal(snapshot.diagnostics.length, 1);
   assert.equal((await files.state()).inbox.pending, 1);
-  const result = await files.importInbox();
-  assert.equal(result.imported.length, 1);
-  assert.equal(result.imported[0]!.task.title, 'Queued');
-  assert.equal(result.imported[0]!.task.body, 'do it');
-  assert.equal((await files.state()).tasks.length, 1);
-  assert.equal((await files.state()).inbox.pending, 0);
-  await assert.rejects(readFile(join(inbox, 'queued.md')), { code: 'ENOENT' });
-  assert.equal((await files.importInbox()).imported.length, 0);
-  assert.ok((await files.state()).inbox.diagnostics.some(item => item.path.endsWith('bad.md')));
 });
 
-test('inbox accepts a minimal taskmd document and fills missing metadata', async t => {
-  const { files, home } = await fixture(t);
-  await writeFile(join(home, 'tasks', 'inbox', 'Minimal task.md'), '---\ntaskmd: 0.3\ntitle: Minimal task\n---\n\nOnly body.\n');
-  const entries = await files.inboxEntries();
-  assert.equal(entries.entries.length, 1);
-  const draft = entries.entries[0]!;
-  assert.equal(draft.task.title, 'Minimal task');
-  assert.equal(draft.task.status, 'todo');
-  assert.equal(draft.task.parent, null);
-  assert.equal(draft.task.archived, false);
-  assert.match(draft.task.id, /^[0-9a-f-]{36}$/);
-  const result = await files.importInbox();
-  assert.equal(result.imported.length, 1);
-  assert.equal(result.imported[0]!.task.id, draft.task.id);
-  assert.match(result.imported[0]!.content, /^---\ntaskmd: 0\.3\nid: /);
-  assert.match(result.imported[0]!.content, /\nstatus: todo\n/);
-  assert.equal(result.imported[0]!.task.body, '\nOnly body.\n');
-});
-
-test('inbox refuses an existing task ID and keeps the file for inspection', async t => {
-  const { files, home } = await fixture(t);
-  const existing = await files.create({ title: 'Existing' });
-  const inbox = join(home, 'tasks', 'inbox');
-  await writeFile(join(inbox, 'copy.md'), existing.content);
-  const result = await files.importInbox();
-  assert.equal(result.imported.length, 0);
-  assert.ok(result.diagnostics.some(item => item.message.includes('already exists')));
-  await assert.doesNotReject(readFile(join(inbox, 'copy.md')));
-  assert.equal((await files.state()).tasks.length, 1);
-});
-
-test('external inbox additions notify subscribers', async t => {
+test('external session inbox additions notify subscribers', async t => {
   const { files, home } = await fixture(t);
   await files.init();
   const notification = new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => { unsubscribe(); reject(new Error('No inbox-change notification')); }, 4000);
+    const timeout = setTimeout(() => { unsubscribe(); reject(new Error('No session-inbox notification')); }, 4000);
     const unsubscribe = files.subscribe(() => { clearTimeout(timeout); unsubscribe(); resolve(); });
   });
-  const queued = createDocument({ id: randomUUID(), title: 'Notify', status: 'todo', parent: null, order: 0, archived: false, body: '' });
-  await writeFile(join(home, 'tasks', 'inbox', 'notify.md'), queued);
+  await writeFile(join(home, 'tasks', 'inbox', 'notify.json'), JSON.stringify({ version: 1, cwd: home }));
   await notification;
-  assert.equal((await files.inboxEntries()).entries.length, 1);
+  assert.equal((await files.sessionInbox()).entries.length, 1);
 });
 
 

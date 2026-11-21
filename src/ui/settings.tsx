@@ -25,7 +25,7 @@ export function HomeConfiguration({ settings, port, sessions, onChanged }: { set
       <label htmlFor={`${id}-directory`}>Home 内的任务目录</label><input id={`${id}-directory`} value={directory} required onChange={event => setDirectory(event.target.value)} />
       <button disabled={busy || !workspaceId}>保存 Home 设置</button>
     </form>
-    <p className="taskmd-muted">将合法任务 Markdown 放入 <code>{directory.trim() || 'tasks'}/inbox/</code>，会自动导入并创建、绑定一个 Session。</p>
+    <p className="taskmd-muted">将 JSON 会话请求放入 <code>{directory.trim() || 'tasks'}/inbox/</code>，会自动创建一个 Session（可指定仓库、Agent preset、模型、初始 Prompt 和可选任务绑定）。</p>
     {(error || workspaces.error) && <p role="alert" className="taskmd-error">{error || workspaces.error}</p>}
     {workspaces.error && <button onClick={workspaces.refresh}>重试读取工作区</button>}
   </details>;

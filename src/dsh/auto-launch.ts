@@ -1,13 +1,15 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import type { HomeSettings, TaskRecord } from '../types.js';
+import { createHash, randomUUID } from 'node:crypto';
+import { TaskError, type SessionInboxModel, type SessionInboxRequest, type SessionInboxResult } from '../types.js';
 import type { TaskFiles } from '../core/files.js';
-import { initialPrompt } from '../core/prompt.js';
 
-/** The Session methods used by the Host-side inbox launcher. */
-export interface AutoLaunchSessionController {
+/** The Host Session methods used to turn one JSON request into a normal Session. */
+export interface SessionInboxController {
   create(request: { workspaceId?: string; cwd?: string; agentPreset?: string }): Promise<{ sessionId: string }>;
+  modelCatalog?(): Promise<{ groups: { id: string; models: { id: string; reasoning?: { efforts: { id: string }[] } }[] }[] }>;
+  selectModel?(request: { sessionId: string; provider: string; model: string; reasoningEffort?: string }): Promise<unknown>;
+  rename?(request: { sessionId: string; title: string }): Promise<unknown>;
   prompt(request: {
     requestId: string;
     sessionId: string;
@@ -17,43 +19,13 @@ export interface AutoLaunchSessionController {
   }, signal: AbortSignal): Promise<unknown>;
 }
 
-type LaunchStatus = 'pending' | 'creating' | 'created' | 'done' | 'unknown' | 'failed';
-
-interface LaunchRecord {
-  taskId: string;
-  source: string;
-  requestId: string;
-  status: LaunchStatus;
-  sessionId?: string;
-  sent?: boolean;
-  error?: string;
-  updatedAt: string;
-}
-
-type LaunchData = Record<string, Record<string, LaunchRecord>>;
-
+const PROCESSING = 'processing';
+const DONE = 'done';
+const FAILED = 'failed';
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
-const messageOf = (error: unknown): string => error instanceof Error ? error.message : String(error);
-const statuses = new Set<LaunchStatus>(['pending', 'creating', 'created', 'done', 'unknown', 'failed']);
-
-function validRecord(value: unknown, taskId: string): LaunchRecord | undefined {
-  if (!isObject(value) || value.taskId !== taskId || typeof value.source !== 'string'
-    || typeof value.requestId !== 'string' || typeof value.status !== 'string' || !statuses.has(value.status as LaunchStatus)
-    || typeof value.updatedAt !== 'string'
-    || (value.sessionId !== undefined && typeof value.sessionId !== 'string')
-    || (value.sent !== undefined && typeof value.sent !== 'boolean')
-    || (value.error !== undefined && typeof value.error !== 'string')) return undefined;
-  return {
-    taskId,
-    source: value.source,
-    requestId: value.requestId,
-    status: value.status as LaunchStatus,
-    updatedAt: value.updatedAt,
-    ...(value.sessionId !== undefined ? { sessionId: value.sessionId } : {}),
-    ...(value.sent !== undefined ? { sent: value.sent } : {}),
-    ...(value.error !== undefined ? { error: value.error } : {}),
-  };
-}
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const hashOf = (content: string): string => createHash('sha256').update(content).digest('hex');
+const emptyApplied = () => ({ created: false, model: false, bound: false, renamed: false, prompted: false });
 
 function sessionIdFromError(error: unknown): string | undefined {
   if (!error || typeof error !== 'object') return undefined;
@@ -63,27 +35,30 @@ function sessionIdFromError(error: unknown): string | undefined {
   const sessionId = isObject(details) ? details.sessionId : undefined;
   return typeof sessionId === 'string' ? sessionId : undefined;
 }
+function errorCode(error: unknown): string {
+  if (error instanceof TaskError) return error.code;
+  if (isObject(error) && typeof error.code === 'string') return error.code;
+  return 'session_create_failed';
+}
 
 /**
- * Watches the task inbox and turns each valid new document into one bound
- * Session. Moving the document out of the inbox is the one-time claim; the
- * launch record makes retries restartable without creating a second Session.
+ * Watches the task inbox for JSON Session requests and turns each into exactly
+ * one Session (create → optional model → optional Task bind → optional prompt).
+ * Moving the request out of the inbox is the one-time claim; `processing/`,
+ * `done/` and `failed/` record the outcome without a second creation.
  */
-export class InboxAutoLauncher {
-  private readonly records = new Map<string, LaunchRecord>();
-  private data: LaunchData = {};
-  private key = '';
+export class SessionInboxLauncher {
   private readonly abort = new AbortController();
   private timer?: ReturnType<typeof setTimeout>;
   private running = false;
   private again = false;
   private closed = false;
+  private recovered = false;
   private unsubscribe?: () => void;
 
   constructor(
     private readonly files: TaskFiles,
-    private readonly localDirectory: string,
-    private readonly controller: () => AutoLaunchSessionController | undefined,
+    private readonly controller: () => SessionInboxController | undefined,
   ) {}
 
   /** The launcher owns one permanent TaskFiles subscriber, keeping polling alive without a page. */
@@ -103,12 +78,7 @@ export class InboxAutoLauncher {
   }
 
   /** Retry after the Session service becomes available or configuration changes. */
-  kick(): void {
-    for (const record of this.records.values()) {
-      if (record.status === 'failed') { record.status = 'pending'; record.error = undefined; }
-    }
-    this.schedule(0);
-  }
+  kick(): void { this.schedule(0); }
 
   private schedule(delay: number): void {
     if (this.closed) return;
@@ -127,166 +97,124 @@ export class InboxAutoLauncher {
         await this.runOnce();
       } while (this.again && !this.closed);
     } catch (error) {
-      console.warn('taskmd: inbox auto-launch failed', error);
+      console.warn('taskmd: session inbox failed', error);
     } finally {
       this.running = false;
     }
   }
 
   private async runOnce(): Promise<void> {
-    const state = await this.files.state();
-    const key = this.files.homeKey();
-    if (!key) return;
-    await this.load(key);
-    const inbox = await this.files.inboxEntries();
-    const existingIds = new Set(state.tasks.map(record => record.task.id));
-    const seen = new Set<string>();
-    let changed = false;
-    for (const entry of inbox.entries) {
-      // A file that duplicates an existing task is left for inspection; it
-      // must not trigger a Session for the already-existing task.
-      if (existingIds.has(entry.task.id) || seen.has(entry.task.id)) continue;
-      seen.add(entry.task.id);
-      changed = this.ensure(entry.task.id, entry.name) || changed;
+    if (!this.recovered) {
+      const directory = await this.files.inboxPath();
+      if (directory) { this.recovered = true; await this.recover(); }
     }
-    if (changed) await this.persist();
-    if (inbox.entries.length) {
-      // The move is the claim: once a file leaves the inbox it is never imported twice.
-      await this.files.importInbox();
-    }
-    const next = await this.files.state();
-    for (const record of [...this.records.values()]) await this.advance(record, next.settings);
-    await this.persist();
-  }
-
-  private ensure(taskId: string, source: string): boolean {
-    if (this.records.has(taskId)) return false;
-    this.records.set(taskId, {
-      taskId, source, requestId: randomUUID(), status: 'pending', sent: false,
-      updatedAt: new Date().toISOString(),
-    });
-    return true;
-  }
-
-  private async advance(record: LaunchRecord, settings: HomeSettings): Promise<void> {
-    if (record.status === 'done' || record.status === 'unknown' || record.status === 'failed') return;
-    if (record.status === 'creating') {
-      // The process died after handing the create request to the Host; a blind
-      // retry could leave a second Session, so stop and let the user inspect.
-      record.status = 'unknown';
-      record.error = 'Session creation result is unknown; inspect the Session list before retrying.';
-      record.updatedAt = new Date().toISOString();
-      return;
-    }
-    if (!(await this.files.hasTask(record.taskId))) {
-      const inbox = await this.files.inboxEntries();
-      if (!inbox.entries.some(entry => entry.task.id === record.taskId)) {
-        record.status = 'failed';
-        record.error = 'Inbox file disappeared before it could be imported.';
-        record.updatedAt = new Date().toISOString();
-      }
-      return;
-    }
-    let task: TaskRecord;
-    try { task = await this.files.read(record.taskId); }
-    catch (error) {
-      record.status = 'failed'; record.error = messageOf(error); record.updatedAt = new Date().toISOString();
-      return;
-    }
-    if (!record.sessionId) {
-      const existing = await this.files.bindings(record.taskId);
-      if (existing.length) { record.status = 'done'; record.updatedAt = new Date().toISOString(); return; }
-      const controller = this.controller();
-      if (!controller) return;
-      record.status = 'creating'; record.error = undefined; record.updatedAt = new Date().toISOString();
-      await this.persist();
-      try {
-        const created = await controller.create({
-          ...(settings.homeWorkspaceId ? { workspaceId: settings.homeWorkspaceId } : { cwd: settings.homeDirectory }),
-        });
-        record.sessionId = created.sessionId;
-        record.status = 'created';
-        record.updatedAt = new Date().toISOString();
-        await this.persist();
-      } catch (error) {
-        const created = sessionIdFromError(error);
-        if (created) {
-          record.sessionId = created;
-          record.status = 'created';
-          record.error = messageOf(error);
-          record.updatedAt = new Date().toISOString();
-          await this.persist();
-        } else {
-          record.status = 'failed'; record.error = messageOf(error); record.updatedAt = new Date().toISOString();
-          await this.persist();
-          return;
-        }
-      }
-    }
-    if (!record.sessionId) return;
-    const bound = (await this.files.bindings(record.taskId)).some(binding => binding.sessionId === record.sessionId);
-    if (!bound) {
-      try { await this.files.bind(record.taskId, record.sessionId); }
-      catch (error) {
-        record.status = 'failed'; record.error = messageOf(error); record.updatedAt = new Date().toISOString();
-        await this.persist();
-        return;
-      }
-    }
-    if (record.sent) { record.status = 'done'; record.updatedAt = new Date().toISOString(); return; }
     const controller = this.controller();
     if (!controller) return;
-    try {
-      await controller.prompt({
-        requestId: record.requestId,
-        sessionId: record.sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text: initialPrompt(task) }],
-        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      }, this.abort.signal);
-      record.sent = true;
-      record.status = 'done';
-      record.error = undefined;
-      record.updatedAt = new Date().toISOString();
-      await this.persist();
-    } catch (error) {
-      record.status = 'failed'; record.error = messageOf(error); record.updatedAt = new Date().toISOString();
-      await this.persist();
+    const inbox = await this.files.sessionInbox();
+    if (!inbox.entries.length) return;
+    const directory = await this.files.inboxPath();
+    if (!directory) return;
+    for (const subdirectory of [PROCESSING, DONE, FAILED]) await mkdir(join(directory, subdirectory), { recursive: true, mode: 0o700 });
+    for (const entry of inbox.entries) {
+      const target = join(directory, PROCESSING, entry.name);
+      try { await rename(entry.path, target); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
+      await this.process(directory, target, entry.name, entry.request, entry.content);
     }
   }
 
-  private async load(key: string): Promise<void> {
-    if (this.key === key) return;
-    this.key = key;
-    this.records.clear();
-    try {
-      const parsed: unknown = JSON.parse(await readFile(join(this.localDirectory, 'auto-launch.json'), 'utf8'));
-      if (!isObject(parsed)) return;
-      this.data = parsed as LaunchData;
-      const section = this.data[key];
-      if (!isObject(section)) return;
-      for (const [taskId, value] of Object.entries(section)) {
-        const record = validRecord(value, taskId);
-        if (record) this.records.set(taskId, record);
-      }
-      // A failed launch is retried once per plugin start; kick() also resets
-      // failures after configuration changes.
-      for (const record of this.records.values()) {
-        if (record.status === 'failed') { record.status = 'pending'; record.error = undefined; }
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('taskmd: reading auto-launch state failed', error);
-      this.data = {};
+  /** Files left in processing belong to an interrupted run; never recreate their Session. */
+  private async recover(): Promise<void> {
+    const directory = await this.files.inboxPath();
+    if (!directory) return;
+    const processing = join(directory, PROCESSING);
+    let names: string[];
+    try { names = await readdir(processing); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    for (const name of names) {
+      if (!name.endsWith('.json') || name.startsWith('.') || name.endsWith('.result.json')) continue;
+      const now = new Date().toISOString();
+      try {
+        await this.finish(directory, join(processing, name), name, FAILED, {
+          version: 1, source: name, status: 'unknown', applied: emptyApplied(), startedAt: now, finishedAt: now,
+          error: { code: 'unknown_result', message: 'The launcher stopped before recording a result; the Session may or may not exist. Inspect the Session list before retrying.' },
+        });
+      } catch (error) { console.warn('taskmd: recovering an interrupted request failed', error); }
     }
   }
 
-  private async persist(): Promise<void> {
-    if (!this.key) return;
-    this.data[this.key] = Object.fromEntries(this.records);
-    await mkdir(this.localDirectory, { recursive: true, mode: 0o700 });
-    const path = join(this.localDirectory, 'auto-launch.json');
-    const temp = join(dirname(path), `.taskmd-auto-launch-${randomUUID()}.tmp`);
-    await writeFile(temp, `${JSON.stringify(this.data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await rename(temp, path);
+  private async validateModel(controller: SessionInboxController, model: SessionInboxModel): Promise<void> {
+    if (!controller.modelCatalog) return;
+    const catalog = await controller.modelCatalog();
+    const group = catalog.groups.find(item => item.id === model.provider);
+    if (!group) throw new TaskError('invalid_model', `Unknown model provider: ${model.provider}.`);
+    const found = group.models.find(item => item.id === model.model);
+    if (!found) throw new TaskError('invalid_model', `Unknown model: ${model.provider}/${model.model}.`);
+    if (model.reasoningEffort !== undefined && !(found.reasoning?.efforts ?? []).some(item => item.id === model.reasoningEffort)) {
+      throw new TaskError('invalid_model', `Unsupported reasoning effort: ${model.reasoningEffort}.`);
+    }
+  }
+
+  private async process(directory: string, source: string, name: string, request: SessionInboxRequest, content: string): Promise<void> {
+    const startedAt = new Date().toISOString();
+    const applied = emptyApplied();
+    const requestId = hashOf(content);
+    let sessionId: string | undefined;
+    try {
+      const controller = this.controller();
+      if (!controller) throw new TaskError('service_unavailable', 'The Session service is unavailable.');
+      if (request.taskId) await this.files.read(request.taskId);
+      if (request.model) await this.validateModel(controller, request.model);
+      const created = await controller.create({
+        ...(request.workspaceId ? { workspaceId: request.workspaceId } : {}),
+        ...(request.cwd ? { cwd: request.cwd } : {}),
+        ...(request.agentPreset ? { agentPreset: request.agentPreset } : {}),
+      });
+      sessionId = created.sessionId;
+      applied.created = true;
+      if (request.model) {
+        if (!controller.selectModel) throw new TaskError('model_unavailable', 'This deployment cannot select a model.');
+        await controller.selectModel({ sessionId, ...request.model });
+        applied.model = true;
+      }
+      if (request.taskId) {
+        await this.files.bind(request.taskId, sessionId);
+        applied.bound = true;
+      }
+      if (request.title && controller.rename) {
+        try { await controller.rename({ sessionId, title: request.title }); applied.renamed = true; }
+        catch (error) { console.warn('taskmd: renaming the new Session failed', error); }
+      }
+      if (request.prompt) {
+        await controller.prompt({
+          requestId,
+          sessionId,
+          mode: 'queue',
+          content: [{ type: 'text', text: request.prompt }],
+          clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }, this.abort.signal);
+        applied.prompted = true;
+      }
+      await this.finish(directory, source, name, DONE, {
+        version: 1, source: name, status: 'done', sessionId, applied, startedAt, finishedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      const created = sessionId ?? sessionIdFromError(error);
+      await this.finish(directory, source, name, FAILED, {
+        version: 1, source: name, status: 'failed', ...(created ? { sessionId: created } : {}), applied,
+        error: { code: errorCode(error), message: messageOf(error) }, startedAt, finishedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  private async finish(directory: string, source: string, name: string, subdirectory: string, result: SessionInboxResult): Promise<void> {
+    const target = join(directory, subdirectory);
+    await mkdir(target, { recursive: true, mode: 0o700 });
+    try { await rename(source, join(target, name)); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    const resultPath = join(target, `${name.replace(/\.json$/, '')}.result.json`);
+    const temp = join(dirname(resultPath), `.taskmd-result-${randomUUID()}.tmp`);
+    await writeFile(temp, `${JSON.stringify(result, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await rename(temp, resultPath);
   }
 }
