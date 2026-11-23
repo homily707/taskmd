@@ -369,7 +369,8 @@ test('Home configuration selects a DSH workspace and configurable relative task 
   const f = fixture();
   const view = await mount(t, createElement(HomeConfiguration, { settings: f.state().settings, port: f.port, sessions: sessions(), onChanged: async () => {} }));
   await act(async () => view.root.findByType('select').props.onChange({ target: { value: 'other' } }));
-  await act(async () => view.root.findByType('input').props.onChange({ target: { value: 'notes/tasks' } }));
+  const directory = view.root.findAllByType('input').find(node => String(node.props.id).endsWith('-directory'))!;
+  await act(async () => directory.props.onChange({ target: { value: 'notes/tasks' } }));
   await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
   assert.deepEqual(f.state().settings, { homeDirectory: '/other', homeWorkspaceId: 'other', tasksDirectory: 'notes/tasks' });
 });
@@ -617,4 +618,22 @@ test('recent Session rows delegate right-click and keyboard menus to DSH', async
     preventDefault() { prevented = true; },
   }));
   assert.deepEqual(menu[1], { id: 's1', title: 'Recent session', point: { x: 19, y: 60 } });
+});
+
+test('Home settings accepts a separate user path for each template', async t => {
+  const f = fixture();
+  const view = await mount(t, createElement(HomeConfiguration, {
+    settings: f.state().settings, port: f.port, sessions: sessions(), onChanged: async () => {},
+  }));
+  const change = async (suffix: string, value: string) => {
+    const input = view.root.findAllByType('input').find(node => String(node.props.id).endsWith(suffix))!;
+    await act(async () => input.props.onChange({ target: { value } }));
+  };
+  await change('-initial-template', '/home/templates/initial.md');
+  await change('-review-template', '~/prompts/review.md');
+  await change('-task-template', '/home/templates/task.md');
+  await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  assert.deepEqual(f.state().settings.templatePaths, {
+    initial: '/home/templates/initial.md', review: '~/prompts/review.md', task: '/home/templates/task.md',
+  });
 });
