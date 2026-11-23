@@ -31,7 +31,7 @@ export type NativeBindResult = 'inserted' | 'already-present' | 'draft-changed';
  * saving the binding; neither a message nor another Session is created here.
  */
 export async function bindNativeSessionTask(
-  port: Pick<TaskPort, 'readTask'>,
+  port: Pick<TaskPort, 'readTask' | 'template'>,
   sessions: Pick<SessionCapability, 'list' | 'bind'>,
   actions: NativeDraftActions,
   sessionId: string,
@@ -46,11 +46,13 @@ export async function bindNativeSessionTask(
   }
   const record = await port.readTask(taskId);
   const alreadyPresent = draft.includes(`任务 ID：${record.task.id}`);
+  // Load before mutating the binding: a missing user template must not leave a half-complete action.
+  const prompt = !alreadyPresent && span.start === span.end
+    ? initialPrompt(record, (await port.template('initial')).content) : undefined;
   await sessions.bind(record.task.id, sessionId);
   if (alreadyPresent) return 'already-present';
   // A selected range would be replaced by insertText. Never discard it.
   if (span.start !== span.end) return 'draft-changed';
-  const prompt = initialPrompt(record);
   if (!actions.insertText(`${draft.trim() ? '\n\n' : ''}${prompt}`, span)) return 'draft-changed';
   actions.persistDraft();
   return 'inserted';
