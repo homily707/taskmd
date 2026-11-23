@@ -134,7 +134,7 @@ function TaskDetail({ record, state, port, sessions, sessionId, onChanged }: { r
     </header>
     {error && <p role="alert" className="taskmd-error">{error}</p>}
     {sessions && <TaskSessionLauncher id={`${id}-launcher`} externalTrigger expanded={launcherOpen} onClose={() => setLauncherOpen(false)} launcherRef={launcherRef}
-      record={record} settings={state.settings} capability={sessions} save={editor.save} body={editor.body} onChanged={() => void onChanged()} />}
+      record={record} settings={state.settings} capability={sessions} port={port} save={editor.save} body={editor.body} onChanged={() => void onChanged()} />}
     <TaskEditor record={record} port={port} editor={editor} />
     {sessions && <TaskSessions record={record} port={port} sessions={sessions} sessionId={sessionId} />}
     <TaskProperties record={record} state={state} port={port} onChanged={onChanged} />
