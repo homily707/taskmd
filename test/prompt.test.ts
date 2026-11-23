@@ -41,3 +41,10 @@ test('review prompt focuses on the code implementation, not the task process', (
   assert.match(prompt, /不直接修改代码/);
   assert.doesNotMatch(prompt, /CONFIDENTIAL_TASK_BODY_NOT_FOR_PROMPT/);
 });
+
+test('file-based prompt replaces identity placeholders without embedding task body', () => {
+  const rendered = initialPrompt(task, 'Task {{title}} {{id}} {{path}} / {{unknown}}');
+  assert.equal(rendered, 'Task Avoid repeated investigation 11111111-1111-4111-8111-111111111111 /home/tasks/example.md / {{unknown}}');
+  assert.equal(reviewPrompt(task, 'Review {{title}}'), 'Review Avoid repeated investigation');
+  assert.doesNotMatch(rendered, /CONFIDENTIAL_TASK_BODY_NOT_FOR_PROMPT/);
+});
