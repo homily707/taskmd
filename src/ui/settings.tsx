@@ -23,7 +23,7 @@ export function HomeConfiguration({ settings, port, sessions, onChanged }: { set
       const templatePaths = Object.fromEntries(Object.entries(values).filter(([, path]) => path)) as TemplatePaths;
       setBusy(true); setError('');
       void port.configure({ homeDirectory: workspace.path, homeWorkspaceId: workspace.workspaceId, tasksDirectory: directory.trim() || 'tasks',
-        templatePaths,
+        ...(Object.keys(templatePaths).length || Object.keys(settings.templatePaths ?? {}).length ? { templatePaths } : {}),
       }).then(onChanged).catch(cause => setError(failure(cause))).finally(() => setBusy(false));
     }}>
       <label htmlFor={`${id}-home`}>Home 工作区</label><select id={`${id}-home`} required value={workspaceId} onChange={event => setWorkspaceId(event.target.value)}>
