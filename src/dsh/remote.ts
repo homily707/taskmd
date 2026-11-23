@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info';
 import type { TypertRemoteCodecSpec, TypertRemoteMethodSpec, TypertRemoteParameterSpec } from '@deepseek-ai/dsh-typert-protocol';
-import type { Attachment, CreateTaskInput, HomeSettings, State, TaskChanges, TaskRecord, TaskSessionBinding } from '../types.js';
+import type { Attachment, CreateTaskInput, HomeSettings, State, TaskChanges, TaskRecord, TaskSessionBinding, TemplateKind, TemplateFile } from '../types.js';
 
 export interface TaskmdChange { revision: string }
 export interface TaskmdFileError { code: string; details?: unknown }
 export interface TaskmdRemote {
   state(): Promise<State>;
+  template(kind: TemplateKind): Promise<TemplateFile>;
   configure(settings: HomeSettings): Promise<State>;
   read(taskId: string): Promise<TaskRecord>;
   create(input: CreateTaskInput): Promise<TaskRecord>;
@@ -20,7 +21,9 @@ export interface TaskmdRemote {
   touch(sessionId: string): Promise<boolean>;
   watch(signal: AbortSignal): AsyncIterable<TaskmdChange>;
 }
-export const settingsSchema = z.strictObject({ homeDirectory: z.string(), homeWorkspaceId: z.string().nullable(), tasksDirectory: z.string() });
+export const settingsSchema = z.strictObject({ homeDirectory: z.string(), homeWorkspaceId: z.string().nullable(), tasksDirectory: z.string(),
+  templatePaths: z.strictObject({ initial: z.string().optional(), review: z.string().optional(), task: z.string().optional() }).optional(),
+});
 export const changesSchema = z.strictObject({
   title: z.string().optional(), status: z.enum(['todo', 'in_progress', 'done', 'canceled']).optional(),
   parent: z.string().nullable().optional(), order: z.number().finite().optional(), archived: z.boolean().optional(), body: z.string().optional(),
@@ -49,6 +52,7 @@ const version = () => parameter('expectedVersion', z.string());
 export const TYPERT_REMOTE = createTypertRemoteInfo({
   package: 'taskmd', methods: {
     'taskmd/state': method('state', [], state),
+    'taskmd/template': method('template', [parameter('kind', z.enum(['initial', 'review', 'task']))], z.strictObject({ path: z.string(), content: z.string() })),
     'taskmd/configure': method('configure', [parameter('settings', settingsSchema)], state),
     'taskmd/read': method('read', [id()], record),
     'taskmd/create': method('create', [parameter('input', createSchema)], record),
