@@ -1,7 +1,8 @@
-import type { Attachment, CreateTaskInput, HomeSettings, State, TaskChanges, TaskRecord, TaskSessionBinding } from '../types.js';
+import type { Attachment, CreateTaskInput, HomeSettings, State, TaskChanges, TaskRecord, TaskSessionBinding, TemplateKind, TemplateFile } from '../types.js';
 
 export interface TaskPort {
   getState(signal?: AbortSignal): Promise<State>;
+  template(kind: TemplateKind): Promise<TemplateFile>;
   configure(settings: HomeSettings): Promise<State>;
   readTask(id: string, signal?: AbortSignal): Promise<TaskRecord>;
   createTask(input: CreateTaskInput): Promise<TaskRecord>;
