@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-api-remote-access';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import { TaskFiles } from '../core/files.js';
 import { SessionInboxLauncher, type SessionInboxController } from './auto-launch.js';
-import { TaskError, type Attachment, type CreateTaskInput, type HomeSettings, type State, type TaskChanges, type TaskRecord, type TaskSessionBinding, TemplateKind, TemplateFile } from '../types.js';
+import { TaskError, type Attachment, type CreateTaskInput, type HomeSettings, type State, type TaskChanges, type TaskRecord, type TaskSessionBinding, type TemplateKind, type TemplateFile } from '../types.js';
 import type { TaskmdChange, TaskmdRemote, TaskmdFileError } from './remote.js';
 import { registerTaskTools } from './tools.js';
 
