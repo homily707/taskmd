@@ -38,6 +38,22 @@ title: 我的任务
 
 Home 设置与 Session 绑定保存在当前 DSH profile 的 `data/taskmd/` 本机 JSON。更新/删除需 `expectedVersion`，冲突后重读并合并。
 
+## 可编辑模板（初始 Prompt / Review / 新任务）
+
+taskmd 首次启动时在当前 DSH profile 的 `data/taskmd/templates/` 创建三个 Markdown 文件，**已有文件不会被覆盖**：
+
+| 文件 | 用途 |
+| --- | --- |
+| `initial.md` | 从任务启动普通 Session 时使用的初始 Prompt；DSH 官方新建 Session 关联任务时也使用它 |
+| `review.md` | 从任务启动 Review Session 的 Prompt |
+| `task.md` | 新建任务的 Markdown 正文（不含 frontmatter；任务 ID、状态等仍由 taskmd 生成） |
+
+直接用编辑器修改以上文件即可。也可以在 taskmd 的「Home 设置」中分别填写**绝对路径**或 `~/` 开头的路径，让三个模板读取用户自己的文件。留空表示使用默认文件。
+
+初始 Prompt 和 Review Prompt 支持 `{{title}}`、`{{id}}`、`{{path}}` 三个占位符，分别替换为任务标题、ID 和 Markdown 文件的绝对路径；模板其余文本原样保留。任务正文模板不进行占位符替换。
+
+每次新建任务、绑定原生 Session 或启动普通/Review Session 时都会重新读取对应文件；已有任务与已发送的 Session 消息不会被追溯修改。文件缺失、非 UTF-8 或读取失败时会提示错误，不会静默回退。启动面板中的 Prompt 仍可为单次 Session 手动覆盖。
+
 ## 会话收件箱
 
 在 `<Home>/<tasksDirectory>/inbox/` 放一个 `*.json` 文件，会创建一个**会话**（不再导入任务）。处理完的请求移入 `done/` 或 `failed/`，并写同名 `<名字>.result.json` 记录 `sessionId`、`applied` 阶段和错误。
