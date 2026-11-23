@@ -2,6 +2,7 @@ import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
+import { DEFAULT_INITIAL_PROMPT, DEFAULT_REVIEW_PROMPT, DEFAULT_TASK_TEMPLATE } from '../src/core/prompt.js';
 import { TaskError, type State, type Task, type TaskChanges, type TaskRecord } from '../src/types.js';
 import type { SessionCapability, TaskPort } from '../src/ui/port.js';
 import { TaskmdApp, TaskmdDetailPanel, TaskmdSidebar } from '../src/ui/taskmd-app.js';
@@ -24,6 +25,7 @@ function fixture(records = [record('a')]) {
   const emit = () => { for (const fn of listeners) fn(); };
   const port: TaskPort = {
     getState: async () => state,
+    template: async kind => ({ path: `/templates/${kind}.md`, content: kind === 'initial' ? DEFAULT_INITIAL_PROMPT : kind === 'review' ? DEFAULT_REVIEW_PROMPT : DEFAULT_TASK_TEMPLATE }),
     configure: async settings => { state = { ...state, settings }; emit(); return state; },
     readTask: async id => { const value = state.tasks.find(item => item.task.id === id); if (!value) throw new TaskError('not_found', 'missing'); return value; },
     createTask: async input => { const value = record(`new-${serial}`, { title: input.title, parent: input.parent ?? null, body: input.body ?? '' }); state = { ...state, tasks: [...state.tasks, value] }; emit(); return value; },
