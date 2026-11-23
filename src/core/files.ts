@@ -340,7 +340,9 @@ export class TaskFiles {
   configure(settings: HomeSettings): Promise<State> {
     return serialized(async () => {
       await this.prepareLocal();
-      const next = settingsOf(settings);
+      const next = settingsOf(settings.templatePaths === undefined
+        ? { ...settings, ...(this.settings.templatePaths ? { templatePaths: this.settings.templatePaths } : {}) }
+        : settings);
       const paths = await this.paths(next);
       await writeJson(join(this.localDirectory, 'settings.json'), next);
       this.settings = next; this.home = paths.home; this.directory = paths.directory; this.inbox = paths.inbox;
