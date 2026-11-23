@@ -19,11 +19,17 @@ export interface TaskRecord {
   path: string;
 }
 
+export type TemplateKind = 'initial' | 'review' | 'task';
+export interface TemplateFile { path: string; content: string }
+export interface TemplatePaths { initial?: string; review?: string; task?: string }
+
 export interface HomeSettings {
   homeDirectory: string;
   homeWorkspaceId: string | null;
   /** A relative directory under Home. Defaults to tasks. */
   tasksDirectory: string;
+  /** Optional absolute paths (or ~/ paths) to user-maintained UTF-8 Markdown templates. */
+  templatePaths?: TemplatePaths;
 }
 
 export interface Diagnostic { path: string; message: string }
