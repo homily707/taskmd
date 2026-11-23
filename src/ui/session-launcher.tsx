@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react';
 import type { HomeSettings, TaskRecord } from '../types.js';
-import type { ModelCatalog, ModelSelection, PresetOption, SessionCapability } from './port.js';
+import type { ModelCatalog, ModelSelection, PresetOption, SessionCapability, TaskPort } from './port.js';
 import { failure, useWorkspaces } from './shared.js';
 import { initialPrompt, reviewPrompt } from './prompt.js';
 import { loadLocal, storeLocal } from './task-editing.js';
@@ -43,8 +43,8 @@ export async function continueLaunch(capability: SessionCapability, taskId: stri
   if (!progress.opened) { await capability.open(id); progress.opened = true; persist(); }
 }
 
-export function TaskSessionLauncher({ record, settings, capability, save, body, launcherRef, onChanged, id, externalTrigger, expanded, onClose }: {
-  record: TaskRecord; settings: HomeSettings; capability: SessionCapability; save(): Promise<TaskRecord>; body?: string; launcherRef?: Ref<HTMLDetailsElement>; onChanged(): void;
+export function TaskSessionLauncher({ record, settings, capability, port, save, body, launcherRef, onChanged, id, externalTrigger, expanded, onClose }: {
+  record: TaskRecord; settings: HomeSettings; capability: SessionCapability; port?: Pick<TaskPort, 'template' | 'subscribe'>; save(): Promise<TaskRecord>; body?: string; launcherRef?: Ref<HTMLDetailsElement>; onChanged(): void;
   id?: string; externalTrigger?: boolean; expanded?: boolean; onClose?(): void;
 }) {
   const workspaces = useWorkspaces(capability);
@@ -55,6 +55,9 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
   const [presetTick, setPresetTick] = useState(0);
   const [promptOverride, setPromptOverride] = useState<string>();
   const [reviewMode, setReviewMode] = useState(false);
+  const [loadedTemplate, setLoadedTemplate] = useState<string>();
+  const [templateError, setTemplateError] = useState('');
+  const [templateLoading, setTemplateLoading] = useState(!!port);
   const [model, setModel] = useState<ModelSelection>();
   const [catalog, setCatalog] = useState<ModelCatalog>();
   const [catalogError, setCatalogError] = useState('');
@@ -78,6 +81,23 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
     void capability.catalog?.(controller.signal).then(value => { if (!controller.signal.aborted) { setCatalog(value); setCatalogError(''); } }, cause => { if (!controller.signal.aborted) setCatalogError(failure(cause)); });
     return () => controller.abort();
   }, [capability, catalogTick]);
+  useEffect(() => {
+    if (!port) { setLoadedTemplate(undefined); setTemplateLoading(false); return; }
+    let active = true;
+    const load = () => {
+      setTemplateLoading(true);
+      void port.template(reviewMode ? 'review' : 'initial').then(value => {
+        if (!active) return;
+        setLoadedTemplate(value.content); setTemplateLoading(false); setTemplateError('');
+      }, cause => {
+        if (!active) return;
+        setLoadedTemplate(undefined); setTemplateLoading(false); setTemplateError(failure(cause));
+      });
+    };
+    load();
+    const unsubscribe = port.subscribe(load);
+    return () => { active = false; unsubscribe(); };
+  }, [port, reviewMode]);
   const persist = () => { storeLocal(launchKey(record), progress.current); setTick(value => value + 1); };
   const run = async () => {
     if (locked.current) return;
@@ -90,7 +110,10 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
       if (!progress.current) {
         if (!chosen || !workspaces.items.some(item => item.workspaceId === chosen)) throw new Error('请选择一个可用的 DSH 仓库。');
         const saved = await save();
-        progress.current = { requestId: crypto.randomUUID(), text: promptOverride ?? (reviewMode ? reviewPrompt(saved) : initialPrompt(saved)), workspaceId: chosen, preset: preset.trim(), model };
+        const template = promptOverride === undefined ? (await port?.template(reviewMode ? 'review' : 'initial'))?.content : undefined;
+        progress.current = { requestId: crypto.randomUUID(),
+          text: promptOverride ?? (reviewMode ? reviewPrompt(saved, template) : initialPrompt(saved, template)),
+          workspaceId: chosen, preset: preset.trim(), model };
         persist();
       }
       await continueLaunch(capability, record.task.id, progress.current, persist);
@@ -101,7 +124,7 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
   const current = progress.current;
   const complete = !!current?.opened;
   const previewRecord = { ...record, task: { ...record.task, body: body ?? record.task.body } };
-  const defaultPrompt = reviewMode ? reviewPrompt(previewRecord) : initialPrompt(previewRecord);
+  const defaultPrompt = reviewMode ? reviewPrompt(previewRecord, loadedTemplate) : initialPrompt(previewRecord, loadedTemplate);
   const selectedModel = catalog?.groups.find(group => group.id === model?.provider)?.models.find(item => item.id === model?.model);
   return <details ref={launcherRef} id={id} open={externalTrigger ? expanded : undefined} className={externalTrigger ? 'taskmd-launcher is-external' : 'taskmd-launcher'}><summary><span className="taskmd-section-icon" aria-hidden="true">＋</span> 新建 Session <span className="taskmd-section-hint">启动 Agent</span></summary>
     {externalTrigger && <div className="taskmd-launcher-head"><strong>会话选项</strong><button type="button" onClick={onClose}>收起</button></div>}
@@ -126,18 +149,19 @@ export function TaskSessionLauncher({ record, settings, capability, save, body, 
       <label htmlFor={`${ids}-review`}><input id={`${ids}-review`} type="checkbox" checked={reviewMode} onChange={event => { setReviewMode(event.target.checked); setPromptOverride(undefined); }} /> Review 模式（只审查，不修改代码）</label>
       <details className="taskmd-prompt"><summary>自定义 Prompt</summary>
         <textarea aria-label="自定义 Prompt" value={promptOverride ?? defaultPrompt} onChange={event => setPromptOverride(event.target.value)} spellCheck={false} />
-        <p className="taskmd-muted">{promptOverride === undefined ? '默认 Prompt 在启动时按已保存正文生成，可先编辑再发送。' : <>已使用自定义内容。<button type="button" className="taskmd-inline-button" onClick={() => setPromptOverride(undefined)}>恢复默认</button></>}</p>
+        <p className="taskmd-muted">{promptOverride === undefined ? (templateLoading ? '正在读取模板文件…' : '默认 Prompt 在启动时从文件读取，并填入任务身份。可先编辑再发送。') : <>已使用自定义内容。<button type="button" className="taskmd-inline-button" onClick={() => setPromptOverride(undefined)}>恢复默认</button></>}</p>
       </details>
     </fieldset>
     {workspaces.error && <p role="alert">{workspaces.error} <button onClick={workspaces.refresh}>重新读取仓库</button></p>}
     {presetError && <p role="alert">{presetError} <button onClick={() => setPresetTick(value => value + 1)}>重新读取 preset</button></p>}
     {catalogError && <p role="alert">{catalogError} <button onClick={() => setCatalogTick(value => value + 1)}>重新读取模型</button></p>}
+    {templateError && <p role="alert" className="taskmd-error">模板读取失败：{templateError}</p>}
     {!!catalog?.failures.length && <p className="taskmd-muted">部分模型不可用：{catalog.failures.map(item => item.name).join('、')}</p>}
     {error && <p role="alert" className="taskmd-error">{error}</p>}
     {current?.unknown ? <div><p>创建结果不明，已暂停重建。请先查看 DSH 会话列表，找到会话后填写 Session ID 继续。</p>
       <label htmlFor={`${ids}-resume`}>已创建的 Session ID</label><input id={`${ids}-resume`} value={resumeId} onChange={event => setResumeId(event.target.value)} />
       <button disabled={busy || !resumeId.trim()} onClick={() => { current.sessionId = resumeId.trim(); current.unknown = false; persist(); void run(); }}>关联并继续</button>
-    </div> : <button disabled={busy || (!current && !chosen) || complete} onClick={() => void run()}>{busy ? '正在准备会话…' : complete ? '已发送并打开 Session' : current ? '继续上次启动' : '保存并启动 Session'}</button>}
+    </div> : <button disabled={busy || (!current && !chosen) || complete || (!current && promptOverride === undefined && (templateLoading || !!templateError))} onClick={() => void run()}>{busy ? '正在准备会话…' : complete ? '已发送并打开 Session' : current ? '继续上次启动' : '保存并启动 Session'}</button>}
     {current?.sessionId && <p className="taskmd-muted">Session：{current.sessionId} · {current.sent ? '已发送快照' : '尚未确认发送'}</p>}
     {complete && <button onClick={() => { progress.current = undefined; persist(); setError(''); }}>准备另一个 Session</button>}
   </details>;
