@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-api-remote-access';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import { TaskFiles } from '../core/files.js';
 import { SessionInboxLauncher, type SessionInboxController } from './auto-launch.js';
-import { TaskError, type Attachment, type CreateTaskInput, type HomeSettings, type State, type TaskChanges, type TaskRecord, type TaskSessionBinding } from '../types.js';
+import { TaskError, type Attachment, type CreateTaskInput, type HomeSettings, type State, type TaskChanges, type TaskRecord, type TaskSessionBinding, TemplateKind, TemplateFile } from '../types.js';
 import type { TaskmdChange, TaskmdRemote, TaskmdFileError } from './remote.js';
 import { registerTaskTools } from './tools.js';
 
@@ -121,6 +121,9 @@ export default class TaskmdHost extends TypertRemoteService implements TaskmdRem
   }
   @Remote('state')
   state(): Promise<State> { return this.run(() => this.files.state()); }
+  @Remote('template')
+  template(kind: TemplateKind): Promise<TemplateFile> { return this.run(() => this.files.template(kind)); }
+
   @Remote('configure')
   configure(settings: HomeSettings): Promise<State> {
     return this.run(() => this.files.configure(settings).finally(() => this.launcher.kick()));
