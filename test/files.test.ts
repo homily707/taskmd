@@ -363,38 +363,35 @@ test('new tasks get section headings unless a body is supplied', async t => {
   assert.equal(custom.task.body, 'Keep my own notes.');
 });
 
-test('editable template files are seeded once and task creation re-reads the chosen path', async t => {
-  const { files, localDirectory, root, settings } = await fixture(t);
+test('editable templates live in the tasks directory, seed once, and a deleted template is blank', async t => {
+  const { files, home } = await fixture(t);
+  const tasksDir = join(await realpath(home), 'tasks');
+  const initialPath = join(tasksDir, 'initial.md');
+  const reviewPath = join(tasksDir, 'review.md');
+  const taskPath = join(tasksDir, 'task.md');
   const initial = await files.template('initial');
   const review = await files.template('review');
   const task = await files.template('task');
-  assert.equal(initial.path, join(localDirectory, 'templates', 'initial.md'));
+  assert.equal(initial.path, initialPath);
   assert.match(initial.content, /{{title}}/);
   assert.match(review.content, /独立审查者/);
   assert.match(task.content, /## 目标/);
-  await writeFile(initial.path, 'CUSTOM {{title}}');
-  await writeFile(review.path, 'CUSTOM REVIEW {{path}}');
-  await writeFile(task.path, '## My task body\n');
+  // Template files are not mistaken for tasks.
+  assert.equal((await files.state()).tasks.length, 0);
+
+  await writeFile(initialPath, 'CUSTOM {{title}}');
+  await writeFile(reviewPath, 'CUSTOM REVIEW {{path}}');
+  await writeFile(taskPath, '## My task body\n');
   assert.equal((await files.template('initial')).content, 'CUSTOM {{title}}');
   assert.equal((await files.template('review')).content, 'CUSTOM REVIEW {{path}}');
   assert.equal((await files.create({ title: 'First' })).task.body, '## My task body\n');
 
-  // Reinitializing the same profile must not overwrite the user's edits.
+  // Restarting must neither overwrite edits nor resurrect a deleted template.
+  await rm(taskPath);
   await files.init();
   assert.equal((await files.template('initial')).content, 'CUSTOM {{title}}');
-
-  const external = join(root, 'custom-task.md');
-  await writeFile(external, '## External template');
-  const configured = await files.configure({ ...settings, templatePaths: { task: external } });
-  assert.equal(configured.settings.templatePaths?.task, external);
-  assert.equal((await files.create({ title: 'Second' })).task.body, '## External template');
-  await writeFile(external, '## Edited again');
-  assert.equal((await files.create({ title: 'Third' })).task.body, '## Edited again');
-
-  await assert.rejects(files.configure({ ...settings, templatePaths: { task: 'relative.md' } }), errorCode('invalid_settings'));
-  const missing = join(root, 'missing-template.md');
-  await files.configure({ ...settings, templatePaths: { task: missing } });
-  await assert.rejects(files.create({ title: 'Should fail' }), errorCode('template_not_found'));
-  // Explicit body is not overridden by a missing default template.
+  assert.equal((await files.template('task')).content, '');
+  assert.equal((await files.create({ title: 'Second' })).task.body, '');
+  // Explicit body still wins over a blank template.
   assert.equal((await files.create({ title: 'Explicit', body: '# Custom body' })).task.body, '# Custom body');
 });

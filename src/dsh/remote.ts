@@ -21,9 +21,7 @@ export interface TaskmdRemote {
   touch(sessionId: string): Promise<boolean>;
   watch(signal: AbortSignal): AsyncIterable<TaskmdChange>;
 }
-export const settingsSchema = z.strictObject({ homeDirectory: z.string(), homeWorkspaceId: z.string().nullable(), tasksDirectory: z.string(),
-  templatePaths: z.strictObject({ initial: z.string().optional(), review: z.string().optional(), task: z.string().optional() }).optional(),
-});
+export const settingsSchema = z.strictObject({ homeDirectory: z.string(), homeWorkspaceId: z.string().nullable(), tasksDirectory: z.string() });
 export const changesSchema = z.strictObject({
   title: z.string().optional(), status: z.enum(['todo', 'in_progress', 'done', 'canceled']).optional(),
   parent: z.string().nullable().optional(), order: z.number().finite().optional(), archived: z.boolean().optional(), body: z.string().optional(),
