@@ -125,6 +125,19 @@ test('archived Session bindings are hidden from task detail', async t => {
   assert.doesNotMatch(text(view.root), /archived-session/);
   assert.match(text(view.root), /尚未关联 Session/);
 });
+test('Session bindings without a live status are hidden from task detail', async t => {
+  const f = fixture([record('a')]);
+  const capability = sessions({
+    list: async () => [{ taskId: 'a', sessionId: 'deleted-session', createdAt: '2026-01-01T00:00:00Z' }],
+    statuses: () => ({
+      get: () => new Map(),
+      subscribe: () => () => {},
+    }),
+  });
+  const view = await mount(t, createElement(TaskmdDetailPanel, { port: f.port, sessions: capability, taskId: 'a' }));
+  assert.doesNotMatch(text(view.root), /deleted-session/);
+  assert.match(text(view.root), /尚未关联 Session/);
+});
 test('task row enters its first Session; a sessionless task opens Markdown', async t => {
   const f = fixture([record('a'), record('b')]);
   const openedTasks: string[] = []; const openedSessions: string[] = [];
