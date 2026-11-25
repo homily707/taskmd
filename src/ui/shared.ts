@@ -63,11 +63,18 @@ export function useSessions(sessions: SessionCapability | undefined, port: TaskP
     }, cause => { if (!controller.signal.aborted) setError(failure(cause)); });
     return () => controller.abort();
   }, [sessions, tick]);
-  // Archived Sessions stay in the binding store (so EasyRewrite's version
-  // switching can bring them back), but they are not part of the task view.
+  // Only Sessions the Client currently knows stay in the task view. Archived
+  // Sessions remain in the binding store (so EasyRewrite's version switching
+  // can bring them back), but they — like a Session whose last trace has
+  // disappeared — are not part of the task view. Both return once live again.
+  // Without a status source there is no way to tell, so only archived is hidden.
   const visible = useMemo(
-    () => bindings.filter(binding => !statuses.get(binding.sessionId)?.archived),
-    [bindings, statuses],
+    () => bindings.filter(binding => {
+      const status = statuses.get(binding.sessionId);
+      if (!sessions?.statuses) return !status?.archived;
+      return status !== undefined && !status.archived;
+    }),
+    [bindings, statuses, sessions],
   );
   return { bindings: visible, statuses, error, refresh };
 }
