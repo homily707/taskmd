@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { TaskRecord, TaskSessionBinding } from '../src/types.js';
+import { DEFAULT_INITIAL_PROMPT } from '../src/core/prompt.js';
 import { bindNativeSessionTask, type NativeDraftActions } from '../src/ui/native-session-task.js';
 
 function record(id = 'task-1'): TaskRecord {
@@ -19,7 +20,10 @@ function fixture(options: { draft?: string; bindings?: TaskSessionBinding[]; cha
     insertText(text, span) { calls.push('insert'); assert.equal(span.draftRev, 3); if (options.changed) return false; edits.push(text); return true; },
     persistDraft() { calls.push('persist'); },
   };
-  const port = { async readTask(id: string) { calls.push('read'); assert.equal(id, target.task.id); return target; } };
+  const port = {
+    async readTask(id: string) { calls.push('read'); assert.equal(id, target.task.id); return target; },
+    async template() { calls.push('template'); return { path: '/templates/initial.md', content: DEFAULT_INITIAL_PROMPT }; },
+  };
   const sessions = {
     async list() { calls.push('list'); return options.bindings ?? []; },
     async bind(taskId: string, sessionId: string) { calls.push('bind'); bound.push([taskId, sessionId]); },
@@ -36,7 +40,7 @@ test('official New Session binding inserts saved task prompt without sending or 
   assert.match(f.edits[0]!, /任务文件：/);
   assert.doesNotMatch(f.edits[0]!, /action=read/);
   assert.doesNotMatch(f.edits[0]!, /保存进展/);
-  assert.deepEqual(f.calls, ['capture', 'list', 'read', 'bind', 'insert', 'persist']);
+  assert.deepEqual(f.calls, ['capture', 'list', 'read', 'template', 'bind', 'insert', 'persist']);
 });
 
 test('existing user draft is preserved with a separator and task prompt at its caret', async () => {

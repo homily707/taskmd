@@ -2,26 +2,23 @@ import { constants } from 'node:fs';
 import { link, mkdir, open, readdir, realpath, rename, stat, unlink } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { TaskError, type Attachment, type CreateTaskInput, type Diagnostic, type HomeSettings, type State, type Task, type TaskChanges, type TaskRecord, type TaskSessionBinding, type SessionInboxEntry } from '../types.js';
+import { homedir } from 'node:os';
+import { TaskError, type Attachment, type CreateTaskInput, type Diagnostic, type HomeSettings, type State, type Task, type TaskChanges, type TaskRecord, type TaskSessionBinding, type SessionInboxEntry, type TemplateKind, type TemplateFile, type TemplatePaths } from '../types.js';
 import { createDocument, hash, isManaged, MAX_DOCUMENT, parseTask, updateDocument, UUID, validateChanges, validateId, validateTask } from './document.js';
 import { scanSessionInbox } from './session-inbox.js';
+import { DEFAULT_INITIAL_PROMPT, DEFAULT_REVIEW_PROMPT, DEFAULT_TASK_TEMPLATE } from './prompt.js';
 
 const defaults: HomeSettings = { homeDirectory: '', homeWorkspaceId: null, tasksDirectory: 'tasks' };
 /** Only files placed in this directory below the task directory trigger import and Session launch. */
 export const INBOX_DIRECTORY = 'inbox';
-/** Default headings for new tasks created through the UI or Agent tool. */
-const DEFAULT_TASK_BODY = [
-  '## 目标',
-  '',
-  '## 工作内容',
-  '',
-  '## 进展',
-  '',
-  '## 工作笔记',
-  '',
-  '## 工作材料',
-  '',
-].join('\n');
+/** The defaults are seeded once; subsequent reads always come from files. */
+const TEMPLATE_DEFAULTS: Record<TemplateKind, string> = {
+  initial: DEFAULT_INITIAL_PROMPT, review: DEFAULT_REVIEW_PROMPT, task: DEFAULT_TASK_TEMPLATE,
+};
+const TEMPLATE_FILES: Record<TemplateKind, string> = {
+  initial: 'initial.md', review: 'review.md', task: 'task.md',
+};
+const TEMPLATE_KINDS: TemplateKind[] = ['initial', 'review', 'task'];
 const MAX_LOCAL = 4 * 1024 * 1024;
 const MAX_ATTACHMENT = 8 * 1024 * 1024;
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -75,8 +72,25 @@ function settingsOf(value: unknown): HomeSettings {
     || /[\\\0:]/.test(tasksDirectory) || tasksDirectory.split('/').some(part => part === '..' || part === '.')) {
     throw new TaskError('invalid_settings', 'Tasks directory must be a relative directory within Home.');
   }
+  const configured = value.templatePaths;
+  if (configured !== undefined && (!object(configured)
+    || Object.keys(configured).some(key => !TEMPLATE_KINDS.includes(key as TemplateKind)))) {
+    throw new TaskError('invalid_settings', 'Invalid template path settings.');
+  }
+  const templatePaths: TemplatePaths = {};
+  for (const kind of TEMPLATE_KINDS) {
+    const input = configured?.[kind];
+    if (input === undefined || input === '') continue;
+    if (typeof input !== 'string' || !input.trim() || input.includes('\0')) {
+      throw new TaskError('invalid_settings', `Invalid ${kind} template path.`);
+    }
+    const path = input.startsWith('~/') ? resolve(homedir(), input.slice(2)) : input;
+    if (!isAbsolute(path)) throw new TaskError('invalid_settings', `${kind} template path must be absolute or begin with ~/.`);
+    templatePaths[kind] = resolve(path);
+  }
   return { homeDirectory: value.homeDirectory ? resolve(value.homeDirectory) : '',
-    homeWorkspaceId: value.homeWorkspaceId, tasksDirectory };
+    homeWorkspaceId: value.homeWorkspaceId, tasksDirectory,
+    ...(Object.keys(templatePaths).length ? { templatePaths } : {}) };
 }
 async function bytes(path: string, limit: number): Promise<Buffer> {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -165,6 +179,7 @@ export class TaskFiles {
   async init(): Promise<void> {
     await serialized(async () => {
       await this.prepareLocal();
+      await this.seedTemplates();
       try { await this.prepare(); this.fingerprint = await this.snapshotFingerprint(); }
       catch (error) { this.fingerprint = `error:${(error as Error).message}`; }
       // Keep configuration available when an existing Home is offline or invalid.
@@ -193,6 +208,34 @@ export class TaskFiles {
   private notify(): void {
     if (this.closed) return;
     for (const listener of this.listeners) { try { listener(); } catch { /* A subscriber cannot fail a committed write. */ } }
+  }
+  private templatePath(kind: TemplateKind): string {
+    return this.settings.templatePaths?.[kind] ?? join(this.localDirectory, 'templates', TEMPLATE_FILES[kind]);
+  }
+  private async seedTemplates(): Promise<void> {
+    const directory = join(this.localDirectory, 'templates');
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    for (const kind of TEMPLATE_KINDS) {
+      try {
+        const file = await open(join(directory, TEMPLATE_FILES[kind]), 'wx', 0o600);
+        try { await file.writeFile(TEMPLATE_DEFAULTS[kind], 'utf8'); } finally { await file.close(); }
+      } catch (error) {
+        if (code(error) !== 'EEXIST') throw error;
+      }
+    }
+  }
+  private async readTemplatePrepared(kind: TemplateKind): Promise<TemplateFile> {
+    const path = this.templatePath(kind);
+    try { return { path, content: await text(path, MAX_DOCUMENT) }; }
+    catch (error) {
+      if (code(error) === 'ENOENT') throw new TaskError('template_not_found', `Template file does not exist: ${path}`);
+      throw error;
+    }
+  }
+  /** Reads the current file every time, including changes from external editors. */
+  template(kind: TemplateKind): Promise<TemplateFile> {
+    if (!TEMPLATE_KINDS.includes(kind)) return Promise.reject(new TaskError('invalid_template', 'Invalid template kind.'));
+    return serialized(async () => { await this.prepare(); return this.readTemplatePrepared(kind); });
   }
   private async prepare(): Promise<void> {
     await mkdir(this.localDirectory, { recursive: true, mode: 0o700 });
@@ -277,6 +320,10 @@ export class TaskFiles {
     return hash(JSON.stringify([
       await this.scan(),
       await this.bindingData(),
+      await Promise.all(TEMPLATE_KINDS.map(async kind => {
+        try { const template = await this.readTemplatePrepared(kind); return [template.path, hash(template.content)]; }
+        catch (error) { return [this.templatePath(kind), (error as Error).message]; }
+      })),
       inbox.entries.map(entry => [entry.name, entry.version]),
       inbox.diagnostics.map(item => [item.path, item.message]),
     ]));
@@ -293,7 +340,9 @@ export class TaskFiles {
   configure(settings: HomeSettings): Promise<State> {
     return serialized(async () => {
       await this.prepareLocal();
-      const next = settingsOf(settings);
+      const next = settingsOf(settings.templatePaths === undefined
+        ? { ...settings, ...(this.settings.templatePaths ? { templatePaths: this.settings.templatePaths } : {}) }
+        : settings);
       const paths = await this.paths(next);
       await writeJson(join(this.localDirectory, 'settings.json'), next);
       this.settings = next; this.home = paths.home; this.directory = paths.directory; this.inbox = paths.inbox;
@@ -360,7 +409,7 @@ export class TaskFiles {
       const siblings = state.tasks.filter(record => record.task.parent === parent);
       const order = Math.max(-1, ...siblings.map(record => record.task.order)) + 1;
       const task: Task = { id: randomUUID(), title: input.title, ...(input.summary !== undefined ? { summary: input.summary } : {}),
-        parent, status: 'todo', order, archived: false, body: input.body === undefined || input.body === '' ? DEFAULT_TASK_BODY : input.body };
+        parent, status: 'todo', order, archived: false, body: input.body === undefined || input.body === '' ? (await this.readTemplatePrepared('task')).content : input.body };
       const content = createDocument(task);
       this.validateParent(task, state);
       await this.assertDirectory();

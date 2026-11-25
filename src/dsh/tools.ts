@@ -9,7 +9,7 @@ import type { TaskmdRemote } from './remote.js';
  * implementation still lives in TaskFiles and the UI remotes, so re-enabling
  * only needs the enum entries and the matching `execute` cases back.
  */
-export function taskTool(api: Omit<TaskmdRemote, 'watch'>) {
+export function taskTool(api: Omit<TaskmdRemote, 'watch' | 'template'>) {
   return defineTool({
     name: 'taskmd',
     description: 'Organize Home tasks and their DSH conversation links. Create tasks with this tool, then read and edit the returned Markdown file directly with file tools; do not read or update task content through this tool. It handles create, delete, configure, attachment and Session binding operations. Task status is manual and independent of Agent activity.',

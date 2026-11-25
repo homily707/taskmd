@@ -2,6 +2,7 @@ import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
+import { DEFAULT_INITIAL_PROMPT, DEFAULT_REVIEW_PROMPT, DEFAULT_TASK_TEMPLATE } from '../src/core/prompt.js';
 import { TaskError, type State, type Task, type TaskChanges, type TaskRecord } from '../src/types.js';
 import type { SessionCapability, TaskPort } from '../src/ui/port.js';
 import { TaskmdApp, TaskmdDetailPanel, TaskmdSidebar } from '../src/ui/taskmd-app.js';
@@ -24,6 +25,7 @@ function fixture(records = [record('a')]) {
   const emit = () => { for (const fn of listeners) fn(); };
   const port: TaskPort = {
     getState: async () => state,
+    template: async kind => ({ path: `/templates/${kind}.md`, content: kind === 'initial' ? DEFAULT_INITIAL_PROMPT : kind === 'review' ? DEFAULT_REVIEW_PROMPT : DEFAULT_TASK_TEMPLATE }),
     configure: async settings => { state = { ...state, settings }; emit(); return state; },
     readTask: async id => { const value = state.tasks.find(item => item.task.id === id); if (!value) throw new TaskError('not_found', 'missing'); return value; },
     createTask: async input => { const value = record(`new-${serial}`, { title: input.title, parent: input.parent ?? null, body: input.body ?? '' }); state = { ...state, tasks: [...state.tasks, value] }; emit(); return value; },
@@ -380,7 +382,8 @@ test('Home configuration selects a DSH workspace and configurable relative task 
   const f = fixture();
   const view = await mount(t, createElement(HomeConfiguration, { settings: f.state().settings, port: f.port, sessions: sessions(), onChanged: async () => {} }));
   await act(async () => view.root.findByType('select').props.onChange({ target: { value: 'other' } }));
-  await act(async () => view.root.findByType('input').props.onChange({ target: { value: 'notes/tasks' } }));
+  const directory = view.root.findAllByType('input').find(node => String(node.props.id).endsWith('-directory'))!;
+  await act(async () => directory.props.onChange({ target: { value: 'notes/tasks' } }));
   await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
   assert.deepEqual(f.state().settings, { homeDirectory: '/other', homeWorkspaceId: 'other', tasksDirectory: 'notes/tasks' });
 });
@@ -628,4 +631,22 @@ test('recent Session rows delegate right-click and keyboard menus to DSH', async
     preventDefault() { prevented = true; },
   }));
   assert.deepEqual(menu[1], { id: 's1', title: 'Recent session', point: { x: 19, y: 60 } });
+});
+
+test('Home settings accepts a separate user path for each template', async t => {
+  const f = fixture();
+  const view = await mount(t, createElement(HomeConfiguration, {
+    settings: f.state().settings, port: f.port, sessions: sessions(), onChanged: async () => {},
+  }));
+  const change = async (suffix: string, value: string) => {
+    const input = view.root.findAllByType('input').find(node => String(node.props.id).endsWith(suffix))!;
+    await act(async () => input.props.onChange({ target: { value } }));
+  };
+  await change('-initial-template', '/home/templates/initial.md');
+  await change('-review-template', '~/prompts/review.md');
+  await change('-task-template', '/home/templates/task.md');
+  await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  assert.deepEqual(f.state().settings.templatePaths, {
+    initial: '/home/templates/initial.md', review: '~/prompts/review.md', task: '/home/templates/task.md',
+  });
 });

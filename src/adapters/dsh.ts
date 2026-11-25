@@ -305,6 +305,7 @@ export function createDshAdapters(scope: DshAdapterScope, lifetime: AbortControl
   const statusSource = createSessionStatusSource(scope);
   const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
   const port: TaskPort = {
+    template: kind => unwrap(remote.template(kind)),
     getState(signal) {
       lifetime.signal.throwIfAborted();
       if (!stateRead) {
