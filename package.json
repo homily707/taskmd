@@ -1,6 +1,6 @@
 {
   "name": "@homily/taskmd",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": false,
   "description": "DSH Home task outline, Markdown and Agent conversations",
   "type": "module",

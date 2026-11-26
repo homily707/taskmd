@@ -43,3 +43,26 @@ await build({
   banner: { js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(manifest.name)}, factory: (require) => { var module = { exports: {} }; var exports = module.exports;` },
   footer: { js: 'return module.exports; }});' },
 });
+
+// Antigravity Sidecar backend (Node.js) and self-contained Web UI bundle.
+await build({
+  ...common,
+  entryPoints: ['src/agy/sidecar.ts'],
+  outfile: 'agy/sidecars/taskmd/main.mjs',
+  platform: 'node',
+  target: 'node22',
+  format: 'esm',
+  external: ['sidecar_sdk'],
+  banner: { js: "import { createRequire as __taskmdCreateRequire } from 'node:module'; const require = __taskmdCreateRequire(import.meta.url);" },
+});
+
+await build({
+  ...common,
+  entryPoints: ['src/agy/client.tsx'],
+  outfile: 'agy/sidecars/taskmd/web/client.js',
+  platform: 'browser',
+  target: 'es2022',
+  format: 'iife',
+  define: { 'process.env.NODE_ENV': '"production"' },
+  loader: { '.css': 'text' },
+});

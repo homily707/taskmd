@@ -1,0 +1,7 @@
+{
+  "name": "taskmd",
+  "displayName": "Taskmd",
+  "version": "0.9.0",
+  "description": "Markdown task outline, session bindings, and one-click conversation navigation in the side pane.",
+  "logo": "assets/logo.svg"
+}

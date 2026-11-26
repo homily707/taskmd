@@ -1,0 +1,26 @@
+{
+  "command": "node",
+  "args": [
+    "main.mjs"
+  ],
+  "env": {
+    "NODE_USE_ENV_PROXY": "1"
+  },
+  "restart_policy": "always",
+  "display_name": "Taskmd",
+  "description": "Home Markdown tasks, session bindings, and conversation navigation.",
+  "has_web_ui": true,
+  "agent_permissions": {
+    "allows_user_interactions": false
+  },
+  "ui_config": {
+    "display_name": "Taskmd",
+    "views": [
+      {
+        "path": "/",
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "title": "Taskmd"
+      }
+    ]
+  }
+}
